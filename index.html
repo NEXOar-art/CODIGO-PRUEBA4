@@ -309,7 +309,7 @@ footer{padding:18px;text-align:center;color:var(--muted);font-size:.72rem;letter
         <span id="badgeB" class="src-badge" hidden></span>
         <button class="btn" id="btnRemoveB" hidden><span>✖ Quitar B</span></button>
       </div>
-      <div class="note">🛠️ Dashboard <b>SKILL MECANIC</b> · Si tu dataset contiene columnas de taller (Órdenes, Clientes, Vehículos, Mecánicos, Estados, etc.) se activan automáticamente los módulos especializados. 📄 Genera un <b>reporte PDF</b> profesional con un solo clic. 🔒 Procesamiento 100% local.</div>
+      <div class="note">🛠️ Dashboard <b>SKILL MECANIC</b> · Si tu dataset contiene columnas de taller (Órdenes, Clientes, Vehículos, Mecánicos, Estados, etc.) se activan automáticamente los módulos especializados y <b>gráficos específicos</b> del taller. 📄 Genera un <b>reporte PDF</b> profesional con un solo clic. 🔒 Procesamiento 100% local.</div>
     </div>
   </section>
 
@@ -544,10 +544,19 @@ const TypeDetector={
     else if(c){if(/^\d{1,3}(,\d{3})+$/.test(s))s=s.replace(/,/g,'');else s=s.replace(',', '.');}
     const n=parseFloat(s);return isFinite(n)?n:null;},
   _mk(y,mo,d){if(y<1900||y>2100||mo<1||mo>12||d<1||d>31)return null;const t=new Date(y,mo-1,d);return isNaN(t)?null:t;},
+  /* ============================================================
+     🛠️ FIX: parseDate ahora soporta "DD/MM/YYYY HH:MM" y variantes
+     Esto arregla el error "d.getFullYear is not a function"
+     ============================================================ */
   parseDate(s){if(typeof s!=='string')return null;s=s.trim();let m;
     if(m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})([T ].*)?$/))return this._mk(+m[1],+m[2],+m[3]);
     if(m=s.match(/^(\d{4})[\/](\d{1,2})[\/](\d{1,2})$/))return this._mk(+m[1],+m[2],+m[3]);
-    if(m=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/))return this._mk(+m[3],+m[2],+m[1]);
+    // NUEVO: DD/MM/YYYY con hora opcional (HH:MM o HH:MM:SS)
+    if(m=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/)){
+      const d=this._mk(+m[3],+m[2],+m[1]);
+      if(d&&m[4]!=null){d.setHours(+m[4],+m[5],m[6]?+m[6]:0,0);}
+      return d;
+    }
     if(m=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2})$/))return this._mk(2000+ +m[3],+m[2],+m[1]);
     if(/[a-záéíóúñ]/i.test(s)&&/\d{4}/.test(s)){const t=Date.parse(s);if(!isNaN(t)){const d=new Date(t);if(d.getFullYear()>=1900&&d.getFullYear()<=2100)return d;}}
     return null;},
@@ -622,7 +631,9 @@ function findSaleCol(cols){
    ||cols.find(c=>c.role==='price')||null;
 }
 const findSoldQty=cols=>cols.find(c=>c.type==='number'&&/cant(idad)?|\bqty\b|\buds\b|unidades/i.test(c.name))||null;
-function isoWeek(d){const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));const day=(t.getUTCDay()+6)%7;t.setUTCDate(t.getUTCDate()-day+3);
+function isoWeek(d){
+  if(!(d instanceof Date)||isNaN(d.getTime()))return 0;
+  const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));const day=(t.getUTCDay()+6)%7;t.setUTCDate(t.getUTCDate()-day+3);
   const firstThu=new Date(Date.UTC(t.getUTCFullYear(),0,4));const fday=(firstThu.getUTCDay()+6)%7;firstThu.setUTCDate(firstThu.getUTCDate()-fday+3);
   return 1+Math.round((t-firstThu)/(7*864e5));}
 
@@ -687,7 +698,7 @@ function finishMeta(cols,rows){
     if(['number','currency','percent'].includes(c.type)){let s=0,n=0,mn=Infinity,mx=-Infinity;
       for(const r of rows){const v=r[c.key];if(typeof v==='number'){n++;s+=v;mn=Math.min(mn,v);mx=Math.max(mx,v);}}
       c.stats=n?{sum:s,mean:s/n,min:mn,max:mx,count:n}:{};}
-    if(c.type==='date'){let mn=null,mx=null;for(const r of rows){const v=r[c.key];if(v){if(!mn||v<mn)mn=v;if(!mx||v>mx)mx=v;}}c.stats={min:mn,max:mx};}}
+    if(c.type==='date'){let mn=null,mx=null;for(const r of rows){const v=r[c.key];if(v&&v instanceof Date&&!isNaN(v.getTime())){if(!mn||v<mn)mn=v;if(!mx||v>mx)mx=v;}}c.stats={min:mn,max:mx};}}
   if(cols._autoCat){const t=cols.filter(c=>c.type==='text'&&c.cardinal>=2&&c.cardinal<=Math.max(20,rows.length/3)).sort((a,b)=>a.cardinal-b.cardinal)[0];if(t)t.role='category';delete cols._autoCat;}
   if(cols._autoLab){const t=cols.filter(c=>c.type==='text'&&c.role!=='category').sort((a,b)=>b.cardinal-a.cardinal)[0];if(t)t.role='label';delete cols._autoLab;}
   if(!cols.some(c=>c.role==='label')&&!cols.some(c=>c.role==='product')){const p=cols.find(c=>c.role==='code');if(p)p.role='label';}
@@ -699,7 +710,7 @@ function processDataset(data){
   const inC=columns.find(c=>c.type==='date'&&/ingreso|recepci[oó]n|entrada|received|admission/i.test(c.name))||dateC;
   if(inC){for(const r of rows){const ing=r[inC.key];const eg=egC?r[egC.key]:null;
     r.__egreso=eg||null;
-    r.__diasStock=ing?Math.max(0,Math.round(((eg||new Date())-ing)/864e5)):null;}}
+    r.__diasStock=ing&&ing instanceof Date&&!isNaN(ing.getTime())?Math.max(0,Math.round(((eg&&eg instanceof Date?eg:new Date())-ing)/864e5)):null;}}
   const wsRoles=['order','client','vehicle','mechanic','plate','appointment','diagnosis','rework','spare'];
   const wsHits=wsRoles.filter(r=>columns.some(c=>c.role===r)).length;
   const wsCols={
@@ -783,13 +794,19 @@ function getFiltered(excludeKey){
   if(state.search)rows=rows.filter(r=>r.__search.includes(state.search));
   return rows;
 }
+/* ============================================================
+   🛠️ FIX: groupAgg ahora soporta modo 'avg' (promedio)
+   Necesario para gráfico de satisfacción promedio por servicio
+   ============================================================ */
 function groupAgg(rows,dimKey,measureKey,mode,top){
   const m=new Map();
   for(const r of rows){const k=r[dimKey];if(k==null||k==='')continue;const key=String(k);
-    const e=m.get(key)||{label:key,value:0,count:0};e.count++;
-    if(mode==='sum'&&measureKey){const v=valNum(r[measureKey]);if(v)e.value+=v;}
+    const e=m.get(key)||{label:key,value:0,count:0,sum:0};e.count++;
+    if(measureKey){const v=valNum(r[measureKey]);if(v!=null){e.sum+=v;if(mode==='sum')e.value=e.sum;}}
     m.set(key,e);}
-  let arr=[...m.values()];if(mode==='count')arr.forEach(e=>e.value=e.count);
+  let arr=[...m.values()];
+  if(mode==='count')arr.forEach(e=>e.value=e.count);
+  else if(mode==='avg')arr.forEach(e=>e.value=e.count?e.sum/e.count:0);
   arr.sort((a,b)=>b.value-a.value);return top?arr.slice(0,top):arr;
 }
 function groupAvg(rows,dimKey,priceKey){
@@ -799,14 +816,16 @@ function groupAvg(rows,dimKey,priceKey){
   let best=null;for(const[k,e]of m)if(e.c>0&&(!best||e.s/e.c>best.avg))best={label:k,avg:e.s/e.c};
   return best;
 }
-function dateGran(rows,key){const v=rows.map(r=>r[key]).filter(Boolean);if(v.length<2)return 'month';
+function dateGran(rows,key){const v=rows.map(r=>r[key]).filter(d=>d instanceof Date&&!isNaN(d.getTime()));if(v.length<2)return 'month';
   const mn=Math.min(...v.map(d=>+d)),mx=Math.max(...v.map(d=>+d));const days=(mx-mn)/864e5;
   return days>420?'year':days>70?'month':'day';}
 const MESES=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
-function bucketOf(d,g){if(g==='year')return String(d.getFullYear());if(g==='month')return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate();}
+function bucketOf(d,g){
+  if(!(d instanceof Date)||isNaN(d.getTime()))return '';
+  if(g==='year')return String(d.getFullYear());if(g==='month')return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate();}
 function bucketLabel(b,g){if(g==='year')return b;if(g==='month'){const[y,m]=b.split('-');return MESES[+m-1]+'-'+y.slice(2);}return b;}
 function seriesMap(rows,dateKey,measKey,mode){const m=new Map();
-  for(const r of rows){const d=r[dateKey];if(!d)continue;const b=bucketOf(d,'month');const e=m.get(b)||{v:0,c:0};e.c++;
+  for(const r of rows){const d=r[dateKey];if(!(d instanceof Date)||isNaN(d.getTime()))continue;const b=bucketOf(d,'month');const e=m.get(b)||{v:0,c:0};e.c++;
     if(mode==='sum'){const v=valNum(r[measKey]);if(v)e.v+=v;}m.set(b,e);}
   return m;}
 
@@ -836,48 +855,23 @@ const DataSource={
     if(!window.XLSX)throw new Error('La librería XLSX no cargó (revisa tu conexión a internet).');
     const wb=XLSX.read(await file.arrayBuffer(),{type:'array',raw:false});
     return this.matrixToObjects(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:'',raw:false}));},
-
-  /* =================================================================
-     DEMO COMPLETO DE TALLER MECÁNICO - 280 ÓRDENES REALISTAS
-     Activa TODOS los módulos: Operaciones, Alertas, Agenda,
-     Estado de reparaciones, Finanzas, Clientes, Inventario, Estrategia
-     ================================================================= */
   demo(){
     const R=(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
     const pick=(arr)=>arr[R(0,arr.length-1)];
     const weighted=(arr)=>{
-      // arr: [{v:'x',w:10},{v:'y',w:3},...] - elige según peso
       const total=arr.reduce((a,x)=>a+x.w,0);let r=Math.random()*total;
       for(const x of arr){r-=x.w;if(r<=0)return x.v;}
       return arr[arr.length-1].v;
     };
-
-    // ===== MAESTROS =====
-    const clientes=[
-      'Juan Pérez','María González','Carlos Rodríguez','Ana Martínez','Luis Fernández',
-      'Patricia López','Jorge Ramírez','Laura Díaz','Ricardo Sánchez','Sofía Torres',
-      'Diego Morales','Valeria Ruiz','Fernando Castro','Gabriela Vargas','Martín Silva',
-      'Romina Jiménez','Pablo Herrera','Carolina Flores','Eduardo Medina','Natalia Aguilar'
-    ];
-    // Clientes recurrentes (aparecen más veces)
+    const clientes=['Juan Pérez','María González','Carlos Rodríguez','Ana Martínez','Luis Fernández','Patricia López','Jorge Ramírez','Laura Díaz','Ricardo Sánchez','Sofía Torres','Diego Morales','Valeria Ruiz','Fernando Castro','Gabriela Vargas','Martín Silva','Romina Jiménez','Pablo Herrera','Carolina Flores','Eduardo Medina','Natalia Aguilar'];
     const clientesRecurrentes=['Juan Pérez','María González','Luis Fernández','Sofía Torres','Fernando Castro'];
-    // Clientes flota
     const flotas=[
       {cli:'Flota TransLog SA',veh:'Iveco Daily 2022',placa:'FL 101 AB'},
       {cli:'Distribuidora Central SRL',veh:'Renault Master 2021',placa:'FL 202 CD'},
       {cli:'Empresa Andes Logistics',veh:'Mercedes Sprinter 2023',placa:'FL 303 EF'}
     ];
-
-    const vehiculos=[
-      'Toyota Corolla 2020','Toyota Hilux 2021','Ford Fiesta 2018','Ford Ranger 2022',
-      'Chevrolet Onix 2021','Chevrolet S10 2020','VW Gol Trend 2019','VW Amarok 2022',
-      'Renault Clio 2020','Renault Duster 2021','Fiat Palio 2017','Fiat Toro 2022',
-      'Peugeot 208 2022','Peugeot 2008 2021','Honda Civic 2019','Honda HR-V 2022',
-      'Hyundai HB20 2021','Hyundai Tucson 2020','Nissan Sentra 2020','Nissan Frontier 2021'
-    ];
+    const vehiculos=['Toyota Corolla 2020','Toyota Hilux 2021','Ford Fiesta 2018','Ford Ranger 2022','Chevrolet Onix 2021','Chevrolet S10 2020','VW Gol Trend 2019','VW Amarok 2022','Renault Clio 2020','Renault Duster 2021','Fiat Palio 2017','Fiat Toro 2022','Peugeot 208 2022','Peugeot 2008 2021','Honda Civic 2019','Honda HR-V 2022','Hyundai HB20 2021','Hyundai Tucson 2020','Nissan Sentra 2020','Nissan Frontier 2021'];
     const placas=['ABC 123','DEF 456','GHI 789','JKL 012','MNO 345','PQR 678','STU 901','VWX 234','YZA 567','BCD 890','EFG 111','HIJ 222','KLM 333','NOP 444','QRS 555'];
-
-    // Servicios con tiempos y precios realistas (minutos, $ mano de obra)
     const servicios=[
       {s:'Cambio de aceite y filtros',min:45,max:90,mo:1800,rep:['Aceite sintético 5W30','Filtro de aceite'],stock:{'Aceite sintético 5W30':45,'Filtro de aceite':8}},
       {s:'Revisión general 20.000 km',min:120,max:180,mo:4500,rep:['Aceite sintético 5W30','Filtro de aceite','Filtro de aire','Filtro habitáculo'],stock:{'Aceite sintético 5W30':45,'Filtro de aceite':8,'Filtro de aire':3,'Filtro habitáculo':2}},
@@ -895,306 +889,127 @@ const DataSource={
       {s:'Servicio de transmisión automática',min:300,max:420,mo:9500,rep:['Aceite ATF','Filtro de transmisión'],stock:{'Aceite ATF':8,'Filtro de transmisión':4}},
       {s:'Diagnóstico y reparación eléctrica',min:90,max:240,mo:4200,rep:['Bujías','Cables de bujía'],stock:{'Bujías':25,'Cables de bujía':10}}
     ];
-
-    // Mecánicos con productividad diferente
-    const mecanicos=[
-      {n:'Carlos Ramírez',hab:1.2},  // muy productivo
-      {n:'Miguel Torres',hab:1.1},
-      {n:'Fernando Silva',hab:1.0},
-      {n:'Andrés Vargas',hab:0.9},
-      {n:'Pablo Jiménez',hab:0.85},
-      {n:'David Castro',hab:0.8}   // aprendiz
-    ];
-
-    // Estados con distribución realista
-    const estados=[
-      {v:'Completado',w:50},
-      {v:'En proceso',w:12},
-      {v:'Diagnóstico',w:8},
-      {v:'Esperando repuestos',w:7},
-      {v:'Listo para entregar',w:6},
-      {v:'Pendiente',w:5},
-      {v:'Cancelado',w:3}
-    ];
-
-    const canales=[
-      {v:'Taller',w:40},{v:'WhatsApp',w:25},{v:'Referido',w:15},{v:'Online',w:12},{v:'Flota',w:8}
-    ];
-
-    const diagnosticos=[
-      'Mantenimiento programado por kilometraje',
-      'Ruido al frenar, revisar pastillas',
-      'Luz check engine encendida',
-      'Vibración en dirección a alta velocidad',
-      'Pérdida de potencia en subida',
-      'Aire acondicionado no enfría',
-      'Fuga de aceite en cárter',
-      'Batería no retiene carga',
-      'Testigo ABS encendido',
-      'Embrague patinando',
-      'Sobrecalentamiento ocasional',
-      'Ruido en suspensión al pasar baches',
-      'Falla intermitente en arranque',
-      'Consumo excesivo de combustible',
-      'Revisión general anual'
-    ];
-
+    const mecanicos=[{n:'Carlos Ramírez',hab:1.2},{n:'Miguel Torres',hab:1.1},{n:'Fernando Silva',hab:1.0},{n:'Andrés Vargas',hab:0.9},{n:'Pablo Jiménez',hab:0.85},{n:'David Castro',hab:0.8}];
+    const estados=[{v:'Completado',w:50},{v:'En proceso',w:12},{v:'Diagnóstico',w:8},{v:'Esperando repuestos',w:7},{v:'Listo para entregar',w:6},{v:'Pendiente',w:5},{v:'Cancelado',w:3}];
+    const canales=[{v:'Taller',w:40},{v:'WhatsApp',w:25},{v:'Referido',w:15},{v:'Online',w:12},{v:'Flota',w:8}];
+    const diagnosticos=['Mantenimiento programado por kilometraje','Ruido al frenar, revisar pastillas','Luz check engine encendida','Vibración en dirección a alta velocidad','Pérdida de potencia en subida','Aire acondicionado no enfría','Fuga de aceite en cárter','Batería no retiene carga','Testigo ABS encendido','Embrague patinando','Sobrecalentamiento ocasional','Ruido en suspensión al pasar baches','Falla intermitente en arranque','Consumo excesivo de combustible','Revisión general anual'];
     const fmtFecha=d=>`${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
     const fmtHora=(h,m)=>`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-
-    const rows=[];
-    const hoy=new Date();hoy.setHours(0,0,0,0);
-    const haceUnAnio=new Date(hoy);haceUnAnio.setFullYear(haceUnAnio.getFullYear()-1);
-
-    // ===== GENERACIÓN DE 280 ÓRDENES =====
-    const TOTAL=280;
-    const ordenesPorMes=[22,25,28,26,30,32,28,24,20,18,15,12]; // distribución anual
-    let ordenIdx=0;
-    const horasDisponibles=[8,9,10,11,12,13,14,15,16,17];
-
-    // 1. Órdenes HISTÓRICAS (último año)
+    const rows=[];const hoy=new Date();hoy.setHours(0,0,0,0);
+    const TOTAL=280;const ordenesPorMes=[22,25,28,26,30,32,28,24,20,18,15,12];
+    let ordenIdx=0;const horasDisponibles=[8,9,10,11,12,13,14,15,16,17];
     for(let mesesAtras=11;mesesAtras>=1&&ordenIdx<TOTAL-8;mesesAtras--){
       const nMes=ordenesPorMes[11-mesesAtras]||20;
       for(let j=0;j<nMes&&ordenIdx<TOTAL-8;j++){
-        const fechaIngreso=new Date(hoy);
-        fechaIngreso.setMonth(fechaIngreso.getMonth()-mesesAtras);
-        fechaIngreso.setDate(R(1,28));
-
-        // ¿Es orden de flota?
-        const esFlota=Math.random()<0.08;
-        let cli,veh,placa;
-        if(esFlota){
-          const f=pick(flotas);cli=f.cli;veh=f.veh;placa=f.placa;
-        }else{
-          // Clientes recurrentes tienen más probabilidad
-          cli=Math.random()<0.4?pick(clientesRecurrentes):pick(clientes);
-          const vehIdx=clientes.indexOf(cli);
-          veh=vehiculos[(vehIdx*3+j)%vehiculos.length];
-          placa=placas[(vehIdx*2+j)%placas.length];
-        }
-
-        const estado=weighted(estados);
-        const serv=pick(servicios);
-        const mecanico=pick(mecanicos);
-        const canal=esFlota?'Flota':weighted(canales);
-        const km=R(15000,180000);
-
-        // Duración real con variabilidad según habilidad del mecánico
-        const hrsReales=Math.round((R(serv.min,serv.max)/60)/mecanico.hab);
-        const duracionMin=hrsReales*60;
-
-        // Costo repuesto
-        let costoRep=0;
-        serv.rep.forEach(r=>{costoRep+=R(150,1200);});
-        // Mano de obra ajustada por habilidad
-        const labor=Math.round(serv.mo*mecanico.hab);
-        const total=costoRep+labor;
-
-        // Fecha egreso
-        const fechaEgreso=new Date(fechaIngreso);
-        const diasEnTaller=Math.ceil(duracionMin/(8*60)); // jornada de 8h
-        fechaEgreso.setDate(fechaIngreso.getDate()+diasEnTaller);
-
-        // ¿Pagado?
+        const fechaIngreso=new Date(hoy);fechaIngreso.setMonth(fechaIngreso.getMonth()-mesesAtras);fechaIngreso.setDate(R(1,28));
+        const esFlota=Math.random()<0.08;let cli,veh,placa;
+        if(esFlota){const f=pick(flotas);cli=f.cli;veh=f.veh;placa=f.placa;}
+        else{cli=Math.random()<0.4?pick(clientesRecurrentes):pick(clientes);const vehIdx=clientes.indexOf(cli);veh=vehiculos[(vehIdx*3+j)%vehiculos.length];placa=placas[(vehIdx*2+j)%placas.length];}
+        const estado=weighted(estados);const serv=pick(servicios);const mecanico=pick(mecanicos);
+        const canal=esFlota?'Flota':weighted(canales);const km=R(15000,180000);
+        const hrsReales=Math.round((R(serv.min,serv.max)/60)/mecanico.hab);const duracionMin=hrsReales*60;
+        let costoRep=0;serv.rep.forEach(r=>{costoRep+=R(150,1200);});
+        const labor=Math.round(serv.mo*mecanico.hab);const total=costoRep+labor;
+        const fechaEgreso=new Date(fechaIngreso);fechaEgreso.setDate(fechaIngreso.getDate()+Math.ceil(duracionMin/(8*60)));
         const pagado=estado==='Completado'?(Math.random()<0.8?'Sí':'No'):(Math.random()<0.3?'Sí':'No');
-
-        // Satisfacción (afectada por estado y tiempo)
         let satisf=4.2;
-        if(estado==='Completado')satisf=R(38,50)/10;
-        else if(estado==='Cancelado')satisf=R(15,30)/10;
-        else if(estado==='Listo para entregar')satisf=R(40,50)/10;
-        else if(estado==='En proceso')satisf=R(35,45)/10;
-        else satisf=R(30,40)/10;
-        // Mecánicos hábiles tienen mejor satisfacción
-        if(mecanico.hab>=1.1)satisf=Math.min(5,satisf+0.2);
-        if(mecanico.hab<=0.85)satisf=Math.max(1,satisf-0.3);
-
-        // Retrabajo (~5-7% histórica)
+        if(estado==='Completado')satisf=R(38,50)/10;else if(estado==='Cancelado')satisf=R(15,30)/10;
+        else if(estado==='Listo para entregar')satisf=R(40,50)/10;else if(estado==='En proceso')satisf=R(35,45)/10;else satisf=R(30,40)/10;
+        if(mecanico.hab>=1.1)satisf=Math.min(5,satisf+0.2);if(mecanico.hab<=0.85)satisf=Math.max(1,satisf-0.3);
         const retrabajo=Math.random()<0.06?'Sí':'No';
-        // Referido
         const referido=canal==='Referido'?'Sí':(Math.random()<0.12?'Sí':'No');
-
-        // Stock del repuesto usado (si aplica)
         const repUsado=serv.rep.length?pick(serv.rep):'Ninguno';
-        let stock;
-        if(serv.stock[repUsado]!=null){
-          stock=serv.stock[repUsado]+R(-3,5);
-          if(stock<0)stock=0;
-          // Hacer algunos stocks críticos para activar alertas
+        let stock;if(serv.stock[repUsado]!=null){stock=serv.stock[repUsado]+R(-3,5);if(stock<0)stock=0;
           if(repUsado==='Kit embrague'||repUsado==='Kit distribución'||repUsado==='Volante motor bimasa')stock=R(0,2);
-        }else{
-          stock='N/A';
-        }
-
-        // Cita (diferente a ingreso para algunas)
-        const cita=new Date(fechaIngreso);
-        cita.setHours(pick(horasDisponibles),pick([0,30]));
-
-        rows.push({
-          'Orden':'OT-'+(10000+ordenIdx),
-          'Cliente':cli,
-          'Vehículo':veh,
-          'Patente':placa,
-          'Kilometraje':km,
-          'Mecánico':mecanico.n,
-          'Servicio':serv.s,
-          'Diagnóstico':pick(diagnosticos),
-          'Estado':estado,
-          'Repuesto usado':repUsado,
-          'Stock':stock,
+        }else{stock='N/A';}
+        const cita=new Date(fechaIngreso);cita.setHours(pick(horasDisponibles),pick([0,30]));
+        rows.push({'Orden':'OT-'+(10000+ordenIdx),'Cliente':cli,'Vehículo':veh,'Patente':placa,'Kilometraje':km,
+          'Mecánico':mecanico.n,'Servicio':serv.s,'Diagnóstico':pick(diagnosticos),'Estado':estado,
+          'Repuesto usado':repUsado,'Stock':stock,
           'Costo repuesto':'$ '+costoRep.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
           'Horas trabajadas':hrsReales,
           'Mano de obra':'$ '+labor.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
           'Total':'$ '+total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
-          'Pagado':pagado,
-          'Duración':duracionMin+' min',
-          'Canal':canal,
-          'Satisfacción':satisf.toFixed(1),
-          'Retrabajo':retrabajo,
-          'Referido':referido,
-          'Flota':esFlota?'Sí':'No',
+          'Pagado':pagado,'Duración':duracionMin+' min','Canal':canal,
+          'Satisfacción':satisf.toFixed(1),'Retrabajo':retrabajo,'Referido':referido,'Flota':esFlota?'Sí':'No',
           'Fecha ingreso':fmtFecha(fechaIngreso),
           'Fecha egreso':(estado==='Completado'||estado==='Listo para entregar')?fmtFecha(fechaEgreso):'',
-          'Cita':fmtFecha(cita)+' '+fmtHora(cita.getHours(),cita.getMinutes())
-        });
+          'Cita':fmtFecha(cita)+' '+fmtHora(cita.getHours(),cita.getMinutes())});
         ordenIdx++;
       }
     }
-
-    // 2. Órdenes del MES ACTUAL (para activar módulo financiero)
-    const mesActual=hoy.getMonth();
-    const anioActual=hoy.getFullYear();
+    const mesActual=hoy.getMonth();const anioActual=hoy.getFullYear();
     const diasMesActual=new Date(anioActual,mesActual+1,0).getDate();
     while(ordenIdx<TOTAL-8){
       const dia=R(1,Math.min(diasMesActual,hoy.getDate()));
       const fechaIngreso=new Date(anioActual,mesActual,dia);
-      const esFlota=Math.random()<0.1;
-      let cli,veh,placa;
+      const esFlota=Math.random()<0.1;let cli,veh,placa;
       if(esFlota){const f=pick(flotas);cli=f.cli;veh=f.veh;placa=f.placa;}
       else{cli=Math.random()<0.5?pick(clientesRecurrentes):pick(clientes);
         const vehIdx=clientes.indexOf(cli);veh=vehiculos[(vehIdx*3+ordenIdx)%vehiculos.length];placa=placas[(vehIdx*2+ordenIdx)%placas.length];}
-
-      // Estados variados para activar todos los módulos
-      const estadosMes=[
-        {v:'Completado',w:40},{v:'En proceso',w:20},{v:'Diagnóstico',w:12},
-        {v:'Esperando repuestos',w:10},{v:'Listo para entregar',w:10},{v:'Pendiente',w:8}
-      ];
-      const estado=weighted(estadosMes);
-      const serv=pick(servicios);
-      const mecanico=pick(mecanicos);
+      const estadosMes=[{v:'Completado',w:40},{v:'En proceso',w:20},{v:'Diagnóstico',w:12},{v:'Esperando repuestos',w:10},{v:'Listo para entregar',w:10},{v:'Pendiente',w:8}];
+      const estado=weighted(estadosMes);const serv=pick(servicios);const mecanico=pick(mecanicos);
       const canal=esFlota?'Flota':weighted(canales);
-      const hrsReales=Math.round((R(serv.min,serv.max)/60)/mecanico.hab);
-      const duracionMin=hrsReales*60;
+      const hrsReales=Math.round((R(serv.min,serv.max)/60)/mecanico.hab);const duracionMin=hrsReales*60;
       let costoRep=0;serv.rep.forEach(r=>{costoRep+=R(150,1200);});
-      const labor=Math.round(serv.mo*mecanico.hab);
-      const total=costoRep+labor;
-      const fechaEgreso=new Date(fechaIngreso);
-      fechaEgreso.setDate(fechaIngreso.getDate()+Math.ceil(duracionMin/(8*60)));
-
+      const labor=Math.round(serv.mo*mecanico.hab);const total=costoRep+labor;
+      const fechaEgreso=new Date(fechaIngreso);fechaEgreso.setDate(fechaIngreso.getDate()+Math.ceil(duracionMin/(8*60)));
       const pagado=estado==='Completado'?(Math.random()<0.65?'Sí':'No'):'No';
-      let satisf=R(38,48)/10;
-      if(estado==='Cancelado')satisf=R(20,35)/10;
+      let satisf=R(38,48)/10;if(estado==='Cancelado')satisf=R(20,35)/10;
       if(mecanico.hab>=1.1)satisf=Math.min(5,satisf+0.15);
-
       const repUsado=serv.rep.length?pick(serv.rep):'Ninguno';
-      let stock;
-      if(serv.stock[repUsado]!=null){
-        stock=serv.stock[repUsado]+R(-2,3);if(stock<0)stock=0;
+      let stock;if(serv.stock[repUsado]!=null){stock=serv.stock[repUsado]+R(-2,3);if(stock<0)stock=0;
         if(repUsado==='Kit embrague'||repUsado==='Kit distribución')stock=R(0,1);
       }else stock='N/A';
-
       const cita=new Date(fechaIngreso);cita.setHours(pick(horasDisponibles),pick([0,30]));
-
-      rows.push({
-        'Orden':'OT-'+(10000+ordenIdx),
-        'Cliente':cli,'Vehículo':veh,'Patente':placa,'Kilometraje':R(15000,180000),
-        'Mecánico':mecanico.n,'Servicio':serv.s,'Diagnóstico':pick(diagnosticos),
-        'Estado':estado,'Repuesto usado':repUsado,'Stock':stock,
+      rows.push({'Orden':'OT-'+(10000+ordenIdx),'Cliente':cli,'Vehículo':veh,'Patente':placa,'Kilometraje':R(15000,180000),
+        'Mecánico':mecanico.n,'Servicio':serv.s,'Diagnóstico':pick(diagnosticos),'Estado':estado,
+        'Repuesto usado':repUsado,'Stock':stock,
         'Costo repuesto':'$ '+costoRep.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
         'Horas trabajadas':hrsReales,
         'Mano de obra':'$ '+labor.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
         'Total':'$ '+total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
-        'Pagado':pagado,'Duración':duracionMin+' min',
-        'Canal':canal,'Satisfacción':satisf.toFixed(1),
-        'Retrabajo':Math.random()<0.07?'Sí':'No',
-        'Referido':canal==='Referido'?'Sí':(Math.random()<0.15?'Sí':'No'),
-        'Flota':esFlota?'Sí':'No',
+        'Pagado':pagado,'Duración':duracionMin+' min','Canal':canal,
+        'Satisfacción':satisf.toFixed(1),'Retrabajo':Math.random()<0.07?'Sí':'No',
+        'Referido':canal==='Referido'?'Sí':(Math.random()<0.15?'Sí':'No'),'Flota':esFlota?'Sí':'No',
         'Fecha ingreso':fmtFecha(fechaIngreso),
         'Fecha egreso':(estado==='Completado'||estado==='Listo para entregar')?fmtFecha(fechaEgreso):'',
-        'Cita':fmtFecha(cita)+' '+fmtHora(cita.getHours(),cita.getMinutes())
-      });
+        'Cita':fmtFecha(cita)+' '+fmtHora(cita.getHours(),cita.getMinutes())});
       ordenIdx++;
     }
-
-    // 3. ÓRDENES DE HOY (para activar "Citas del día" y "Órdenes hoy")
-    // Generamos 8 órdenes/citas para HOY con diferentes horas
-    const horariosHoy=[
-      {h:8,m:30},{h:9,m:0},{h:10,m:0},{h:11,m:30},
-      {h:13,m:0},{h:14,m:30},{h:16,m:0},{h:17,m:30}
-    ];
-    const estadosHoy=[
-      'En proceso','En proceso','Diagnóstico','Esperando repuestos',
-      'Listo para entregar','Completado','Pendiente','En proceso'
-    ];
-
+    const horariosHoy=[{h:8,m:30},{h:9,m:0},{h:10,m:0},{h:11,m:30},{h:13,m:0},{h:14,m:30},{h:16,m:0},{h:17,m:30}];
+    const estadosHoy=['En proceso','En proceso','Diagnóstico','Esperando repuestos','Listo para entregar','Completado','Pendiente','En proceso'];
     for(let i=0;i<8;i++){
-      const fechaIngreso=new Date(hoy);
-      fechaIngreso.setHours(horariosHoy[i].h,horariosHoy[i].m,0,0);
-
-      const esFlota=i===2;
-      let cli,veh,placa;
+      const fechaIngreso=new Date(hoy);fechaIngreso.setHours(horariosHoy[i].h,horariosHoy[i].m,0,0);
+      const esFlota=i===2;let cli,veh,placa;
       if(esFlota){const f=pick(flotas);cli=f.cli;veh=f.veh;placa=f.placa;}
-      else{cli=Math.random()<0.6?pick(clientesRecurrentes):pick(clientes);
-        veh=vehiculos[(i*3)%vehiculos.length];placa=placas[(i*2)%placas.length];}
-
-      const estado=estadosHoy[i];
-      const serv=pick(servicios);
-      const mecanico=mecanicos[i%mecanicos.length];
-      const hrsReales=Math.round((R(serv.min,serv.max)/60)/mecanico.hab);
-      const duracionMin=hrsReales*60;
+      else{cli=Math.random()<0.6?pick(clientesRecurrentes):pick(clientes);veh=vehiculos[(i*3)%vehiculos.length];placa=placas[(i*2)%placas.length];}
+      const estado=estadosHoy[i];const serv=pick(servicios);const mecanico=mecanicos[i%mecanicos.length];
+      const hrsReales=Math.round((R(serv.min,serv.max)/60)/mecanico.hab);const duracionMin=hrsReales*60;
       let costoRep=0;serv.rep.forEach(r=>{costoRep+=R(150,1200);});
-      const labor=Math.round(serv.mo*mecanico.hab);
-      const total=costoRep+labor;
-
+      const labor=Math.round(serv.mo*mecanico.hab);const total=costoRep+labor;
       const fechaEgreso=new Date(hoy);
-      if(estado==='Completado'){
-        fechaEgreso.setHours(horariosHoy[i].h+hrsReales,horariosHoy[i].m);
-      }
-
+      if(estado==='Completado')fechaEgreso.setHours(horariosHoy[i].h+hrsReales,horariosHoy[i].m);
       const pagado=estado==='Completado'?'Sí':'No';
       const satisf=estado==='Completado'?'4.8':(estado==='En proceso'?'4.2':'4.5');
       const repUsado=serv.rep.length?pick(serv.rep):'Ninguno';
       const stock=serv.stock[repUsado]!=null?Math.max(0,serv.stock[repUsado]+R(-1,2)):'N/A';
-
-      const cita=new Date(hoy);
-      cita.setHours(horariosHoy[i].h,horariosHoy[i].m,0,0);
-
-      rows.push({
-        'Orden':'OT-'+(10000+ordenIdx),
-        'Cliente':cli,'Vehículo':veh,'Patente':placa,'Kilometraje':R(20000,120000),
-        'Mecánico':mecanico.n,'Servicio':serv.s,'Diagnóstico':pick(diagnosticos),
-        'Estado':estado,'Repuesto usado':repUsado,'Stock':stock,
+      const cita=new Date(hoy);cita.setHours(horariosHoy[i].h,horariosHoy[i].m,0,0);
+      rows.push({'Orden':'OT-'+(10000+ordenIdx),'Cliente':cli,'Vehículo':veh,'Patente':placa,'Kilometraje':R(20000,120000),
+        'Mecánico':mecanico.n,'Servicio':serv.s,'Diagnóstico':pick(diagnosticos),'Estado':estado,
+        'Repuesto usado':repUsado,'Stock':stock,
         'Costo repuesto':'$ '+costoRep.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
         'Horas trabajadas':hrsReales,
         'Mano de obra':'$ '+labor.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
         'Total':'$ '+total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
-        'Pagado':pagado,'Duración':duracionMin+' min',
-        'Canal':esFlota?'Flota':pick(['Taller','WhatsApp','Online']),
-        'Satisfacción':satisf,
-        'Retrabajo':'No','Referido':'No','Flota':esFlota?'Sí':'No',
+        'Pagado':pagado,'Duración':duracionMin+' min','Canal':esFlota?'Flota':pick(['Taller','WhatsApp','Online']),
+        'Satisfacción':satisf,'Retrabajo':'No','Referido':'No','Flota':esFlota?'Sí':'No',
         'Fecha ingreso':fmtFecha(fechaIngreso),
         'Fecha egreso':estado==='Completado'?fmtFecha(fechaEgreso):'',
-        'Cita':fmtFecha(cita)+' '+fmtHora(cita.getHours(),cita.getMinutes())
-      });
+        'Cita':fmtFecha(cita)+' '+fmtHora(cita.getHours(),cita.getMinutes())});
       ordenIdx++;
     }
-
-    // Mezclar órdenes para que se vean naturales
-    for(let i=rows.length-1;i>0;i--){
-      const j=Math.floor(Math.random()*(i+1));
-      [rows[i],rows[j]]=[rows[j],rows[i]];
-    }
-
+    for(let i=rows.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[rows[i],rows[j]]=[rows[j],rows[i]];}
     return rows;
   }
 };
@@ -1203,15 +1018,10 @@ const DataSource={
 const WorkshopEngine={
   detect(){const ws=state.columns._ws;return state.workshopMode&&ws?ws:null;},
   render(rows){
-    const ws=this.detect();
-    const sec=$('#workshopSection');
-    if(!ws){sec.hidden=true;return;}
-    sec.hidden=false;
-    const hoy=new Date();hoy.setHours(0,0,0,0);
-    const maniana=new Date(hoy);maniana.setDate(maniana.getDate()+1);
-    const orderC=ws.order||ws.status;
+    const ws=this.detect();const sec=$('#workshopSection');if(!ws){sec.hidden=true;return;}sec.hidden=false;
+    const hoy=new Date();hoy.setHours(0,0,0,0);const maniana=new Date(hoy);maniana.setDate(maniana.getDate()+1);
     const stC=ws.status;
-    const ordHoy=rows.filter(r=>{const f=r[state.columns.find(c=>c.role==='date')?.key];return f&&f>=hoy&&f<maniana;}).length;
+    const ordHoy=rows.filter(r=>{const f=r[state.columns.find(c=>c.role==='date')?.key];return f instanceof Date&&f>=hoy&&f<maniana;}).length;
     const enProceso=stC?rows.filter(r=>isInProgress(r[stC.key])).length:0;
     const pendAprobar=stC?rows.filter(r=>isPending(r[stC.key])||isDiagnosis(r[stC.key])).length:0;
     const completadas=stC?rows.filter(r=>isCompleted(r[stC.key])).length:0;
@@ -1230,23 +1040,15 @@ const WorkshopEngine={
       {cls:'info',ic:'🚙',lbl:'Vehículos registrados',val:Utils.fmtInt(totVeh),sub:'Historial'},
       {cls:'alert',ic:'⚡',lbl:'Órdenes activas',val:Utils.fmtInt(activas),sub:'En curso'}
     ];
-    grid.innerHTML=items.map(i=>`<div class="ws-card ${i.cls}">
-      <span class="ws-ic">${i.ic}</span>
-      <span class="ws-lbl">${i.lbl}</span>
-      <span class="ws-val">${i.val}</span>
-      <span class="ws-sub">${i.sub}</span>
-    </div>`).join('');
+    grid.innerHTML=items.map(i=>`<div class="ws-card ${i.cls}"><span class="ws-ic">${i.ic}</span><span class="ws-lbl">${i.lbl}</span><span class="ws-val">${i.val}</span><span class="ws-sub">${i.sub}</span></div>`).join('');
     $('#wsInfo').innerHTML=`<b>${Utils.fmtInt(rows.length)}</b> órdenes totales · ${state.workshopMode?'🛠️':'📊'}`;
   }
 };
 
-/* ================= AlertsEngine ================= */
 const AlertsEngine={
   build(rows){
-    const ws=state.columns._ws;const out=[];
-    if(!ws||!state.workshopMode)return out;
-    const stC=ws.status;
-    const stCol=stC||findStatusCol(state.columns);
+    const ws=state.columns._ws;const out=[];if(!ws||!state.workshopMode)return out;
+    const stC=ws.status;const stCol=stC||findStatusCol(state.columns);
     const stockC=roleCol('stock')||ws.spare;
     if(stockC){
       const lowStock=rows.filter(r=>{const v=valNum(r[stockC.key]);return v!=null&&v<=5;}).length;
@@ -1269,14 +1071,12 @@ const AlertsEngine={
       }
     }
     const rwC=ws.rework;
-    if(rwC){
-      const rw=rows.filter(r=>/s[ií]|yes|true|1/i.test(String(r[rwC.key]??''))).length;
-      if(rw>0)out.push({t:'warn',ic:'🔄',title:`${rw} vehículos con retrabajo`,desc:'Analizar causa raíz: calidad, diagnóstico inicial o repuestos.',time:'Este mes'});
-    }
+    if(rwC){const rw=rows.filter(r=>/s[ií]|yes|true|1/i.test(String(r[rwC.key]??''))).length;
+      if(rw>0)out.push({t:'warn',ic:'🔄',title:`${rw} vehículos con retrabajo`,desc:'Analizar causa raíz: calidad, diagnóstico inicial o repuestos.',time:'Este mes'});}
     const apptC=ws.appointment;
     if(apptC&&apptC.type==='date'){
       const now=new Date();
-      const in3h=rows.filter(r=>{const f=r[apptC.key];return f&&f>=now&&f<=new Date(now.getTime()+3*3600000);}).length;
+      const in3h=rows.filter(r=>{const f=r[apptC.key];return f instanceof Date&&f>=now&&f<=new Date(now.getTime()+3*3600000);}).length;
       if(in3h>0)out.push({t:'info',ic:'⏰',title:`${in3h} citas en las próximas 3 horas`,desc:'Preparar bahías y repuestos.',time:'Inmediato'});
     }
     const ratC=ws.rating;
@@ -1288,80 +1088,48 @@ const AlertsEngine={
       if(low>0)out.push({t:'critical',ic:'📉',title:`${low} evaluaciones muy negativas (≤2)`,desc:'Contactar clientes afectados de inmediato.',time:'Urgente'});
     }
     const kmC=ws.mileage;
-    if(kmC){
-      const highKm=rows.filter(r=>{const v=valNum(r[kmC.key]);return v!=null&&v>150000;}).length;
-      if(highKm>5)out.push({t:'info',ic:'🛣️',title:`${highKm} vehículos +150k km`,desc:'Oportunidad: ofrecer mantenimiento mayor o evaluación profunda.',time:'Este mes'});
-    }
+    if(kmC){const highKm=rows.filter(r=>{const v=valNum(r[kmC.key]);return v!=null&&v>150000;}).length;
+      if(highKm>5)out.push({t:'info',ic:'🛣️',title:`${highKm} vehículos +150k km`,desc:'Oportunidad: ofrecer mantenimiento mayor o evaluación profunda.',time:'Este mes'});}
     return out;
   },
   render(rows){
-    const sec=$('#alertsSection');
-    const alerts=this.build(rows);
-    if(!alerts.length){sec.hidden=true;return;}
-    sec.hidden=false;
+    const sec=$('#alertsSection');const alerts=this.build(rows);
+    if(!alerts.length){sec.hidden=true;return;}sec.hidden=false;
     const list=$('#alertsList');
-    list.innerHTML=alerts.map((a,i)=>`
-      <div class="alert-item ${a.t}" style="animation-delay:${i*60}ms">
-        <span class="al-ic">${a.ic}</span>
-        <div class="al-body">
-          <div class="al-title">${Utils.esc(a.title)}</div>
-          <div class="al-desc">${Utils.esc(a.desc)}</div>
-          <div class="al-time">⏱ ${Utils.esc(a.time)}</div>
-        </div>
-      </div>`).join('');
-    const crit=alerts.filter(a=>a.t==='critical').length;
-    const warn=alerts.filter(a=>a.t==='warn').length;
+    list.innerHTML=alerts.map((a,i)=>`<div class="alert-item ${a.t}" style="animation-delay:${i*60}ms"><span class="al-ic">${a.ic}</span><div class="al-body"><div class="al-title">${Utils.esc(a.title)}</div><div class="al-desc">${Utils.esc(a.desc)}</div><div class="al-time">⏱ ${Utils.esc(a.time)}</div></div></div>`).join('');
+    const crit=alerts.filter(a=>a.t==='critical').length;const warn=alerts.filter(a=>a.t==='warn').length;
     $('#alertsInfo').innerHTML=`<b>${alerts.length}</b> alertas · ${crit?'<b style="color:var(--bad)">'+crit+' críticas</b>':''}${warn?' · '+warn+' advertencias':''}`;
   }
 };
 
-/* ================= AgendaEngine ================= */
 const AgendaEngine={
   render(rows){
-    const sec=$('#agendaSection');
-    const ws=state.columns._ws;if(!ws||!state.workshopMode){sec.hidden=true;return;}
+    const sec=$('#agendaSection');const ws=state.columns._ws;if(!ws||!state.workshopMode){sec.hidden=true;return;}
     const dateC=ws.appointment||roleCol('date');
     if(!dateC||dateC.type!=='date'){sec.hidden=true;return;}
-    const hoy=new Date();hoy.setHours(0,0,0,0);
-    const maniana=new Date(hoy);maniana.setDate(maniana.getDate()+1);
-    const citasHoy=rows.filter(r=>{const f=r[dateC.key];return f&&f>=hoy&&f<maniana;}).sort((a,b)=>a[dateC.key]-b[dateC.key]);
-    if(!citasHoy.length){sec.hidden=true;return;}
-    sec.hidden=false;
-    const now=new Date();
-    const cliC=ws.client;const vehC=ws.vehicle;const svcC=ws.service;
+    const hoy=new Date();hoy.setHours(0,0,0,0);const maniana=new Date(hoy);maniana.setDate(maniana.getDate()+1);
+    const citasHoy=rows.filter(r=>{const f=r[dateC.key];return f instanceof Date&&!isNaN(f.getTime())&&f>=hoy&&f<maniana;}).sort((a,b)=>a[dateC.key]-b[dateC.key]);
+    if(!citasHoy.length){sec.hidden=true;return;}sec.hidden=false;
+    const now=new Date();const cliC=ws.client;const vehC=ws.vehicle;const svcC=ws.service;
     const list=$('#agendaList');
     list.innerHTML=citasHoy.slice(0,16).map((r,i)=>{
-      const t=r[dateC.key];
-      const past=t<now;
-      return `<div class="agenda-item ${past?'past':''}" style="animation-delay:${i*50}ms">
-        <span class="ag-time">${Utils.fmtTime(t)}</span>
-        <span class="ag-client">${Utils.esc(Utils.trunc(cliC?(r[cliC.key]||'Cliente'):('Cliente '+(i+1)),28))}</span>
-        ${vehC?`<span class="ag-vehicle">🚗 ${Utils.esc(Utils.trunc(r[vehC.key]||'',26))}</span>`:''}
-        ${svcC?`<span class="ag-service">🔧 ${Utils.esc(Utils.trunc(r[svcC.key]||'',26))}</span>`:''}
-      </div>`;
+      const t=r[dateC.key];const past=t<now;
+      return `<div class="agenda-item ${past?'past':''}" style="animation-delay:${i*50}ms"><span class="ag-time">${Utils.fmtTime(t)}</span><span class="ag-client">${Utils.esc(Utils.trunc(cliC?(r[cliC.key]||'Cliente'):('Cliente '+(i+1)),28))}</span>${vehC?`<span class="ag-vehicle">🚗 ${Utils.esc(Utils.trunc(r[vehC.key]||'',26))}</span>`:''}${svcC?`<span class="ag-service">🔧 ${Utils.esc(Utils.trunc(r[svcC.key]||'',26))}</span>`:''}</div>`;
     }).join('');
     $('#agendaInfo').innerHTML=`<b>${citasHoy.length}</b> citas · ${Utils.fmtDate(hoy)}`;
   }
 };
 
-/* ================= RepairStatusEngine ================= */
 const RepairStatusEngine={
   render(rows){
-    const sec=$('#repairStatusSection');
-    const ws=state.columns._ws;if(!ws||!state.workshopMode){sec.hidden=true;return;}
-    const stC=ws.status||findStatusCol(state.columns);
-    if(!stC){sec.hidden=true;return;}
-    sec.hidden=false;
+    const sec=$('#repairStatusSection');const ws=state.columns._ws;if(!ws||!state.workshopMode){sec.hidden=true;return;}
+    const stC=ws.status||findStatusCol(state.columns);if(!stC){sec.hidden=true;return;}sec.hidden=false;
     const counts={diag:0,waiting:0,progress:0,ready:0,completed:0,total:rows.length};
     rows.forEach(r=>{const v=String(r[stC.key]||'').toLowerCase();
-      if(isDiagnosis(v))counts.diag++;
-      else if(isWaitingParts(v))counts.waiting++;
-      else if(isInProgress(v))counts.progress++;
-      else if(isReadyForPickup(v))counts.ready++;
-      else if(isCompleted(v))counts.completed++;
-    });
-    const total=Math.max(1,counts.total);
-    const grid=$('#statusGrid');
+      if(isDiagnosis(v))counts.diag++;else if(isWaitingParts(v))counts.waiting++;
+      else if(isInProgress(v))counts.progress++;else if(isReadyForPickup(v))counts.ready++;
+      else if(isCompleted(v))counts.completed++;});
+    const total=Math.max(1,counts.total);const grid=$('#statusGrid');
     const boxes=[
       {cls:'diag',ic:'🔍',lbl:'Diagnóstico',val:counts.diag,pct:counts.diag/total*100,filter:'Diagnóstico'},
       {cls:'waiting',ic:'📦',lbl:'Esperando repuestos',val:counts.waiting,pct:counts.waiting/total*100,filter:'Esperando repuestos'},
@@ -1369,13 +1137,7 @@ const RepairStatusEngine={
       {cls:'ready',ic:'✅',lbl:'Listo para entrega',val:counts.ready,pct:counts.ready/total*100,filter:'Listo'},
       {cls:'complete',ic:'🏁',lbl:'Completadas',val:counts.completed,pct:counts.completed/total*100,filter:'Completado'}
     ];
-    grid.innerHTML=boxes.map(b=>`
-      <div class="status-box ${b.cls}" data-filter="${b.filter}">
-        <span class="st-ic">${b.ic}</span>
-        <span class="st-lbl">${b.lbl}</span>
-        <span class="st-val">${Utils.fmtInt(b.val)}</span>
-        <div class="st-bar"><div style="width:${b.pct}%"></div></div>
-      </div>`).join('');
+    grid.innerHTML=boxes.map(b=>`<div class="status-box ${b.cls}" data-filter="${b.filter}"><span class="st-ic">${b.ic}</span><span class="st-lbl">${b.lbl}</span><span class="st-val">${Utils.fmtInt(b.val)}</span><div class="st-bar"><div style="width:${b.pct}%"></div></div></div>`).join('');
     grid.querySelectorAll('.status-box').forEach(el=>el.addEventListener('click',()=>{
       const v=el.dataset.filter;const k=stC.key;
       if(state.filters[k]&&state.filters[k].kind==='set'&&state.filters[k].values.size===1){
@@ -1383,609 +1145,282 @@ const RepairStatusEngine={
         if(Utils.norm(cur)===Utils.norm(v)){delete state.filters[k];el.classList.remove('active');state.page=1;refresh();return;}
       }
       state.filters[k]={kind:'set',values:new Set([v]),label:`${Utils.trunc(stC.name,14)}: ${v}`,fn:r=>isCompleted(v)?isCompleted(r[k]):isInProgress(v)?isInProgress(r[k]):isDiagnosis(v)?isDiagnosis(r[k]):isWaitingParts(v)?isWaitingParts(r[k]):isReadyForPickup(v)?isReadyForPickup(r[k]):String(r[k]??'')===v};
-      grid.querySelectorAll('.status-box').forEach(x=>x.classList.remove('active'));
-      el.classList.add('active');
-      state.page=1;refresh();
+      grid.querySelectorAll('.status-box').forEach(x=>x.classList.remove('active'));el.classList.add('active');state.page=1;refresh();
     }));
     $('#statusInfo').innerHTML=`<b>${counts.progress+counts.diag+counts.waiting+counts.ready}</b> activas · Clic para filtrar`;
   }
 };
 
-/* ================= FinancialEngine ================= */
 const FinancialEngine={
   render(rows){
-    const sec=$('#financialSection');
-    const saleC=findSaleCol(state.columns);
+    const sec=$('#financialSection');const saleC=findSaleCol(state.columns);
     const expC=state.columns.find(c=>c.type==='currency'&&/gasto|expense|cost/i.test(c.name));
-    const dateC=roleCol('date');
-    if(!saleC||!dateC){sec.hidden=true;return;}
+    const dateC=roleCol('date');if(!saleC||!dateC){sec.hidden=true;return;}
     const hoy=new Date();const mesActual=hoy.getMonth();const anioActual=hoy.getFullYear();
-    const mesRows=rows.filter(r=>{const d=r[dateC.key];return d&&d.getMonth()===mesActual&&d.getFullYear()===anioActual;});
-    const ingresosMes=sumIn(mesRows,saleC.key);
-    const gastosMes=expC?sumIn(mesRows,expC.key):ingresosMes*0.6;
+    const mesRows=rows.filter(r=>{const d=r[dateC.key];return d instanceof Date&&d.getMonth()===mesActual&&d.getFullYear()===anioActual;});
+    const ingresosMes=sumIn(mesRows,saleC.key);const gastosMes=expC?sumIn(mesRows,expC.key):ingresosMes*0.6;
     const ganancia=ingresosMes-gastosMes;
-    const mesAntRows=rows.filter(r=>{const d=r[dateC.key];const m2=new Date(anioActual,mesActual-1,1);return d&&d.getMonth()===m2.getMonth()&&d.getFullYear()===m2.getFullYear();});
-    const ingAnt=sumIn(mesAntRows,saleC.key);
-    const delta=ingAnt>0?((ingresosMes-ingAnt)/ingAnt*100):0;
+    const mesAntRows=rows.filter(r=>{const d=r[dateC.key];const m2=new Date(anioActual,mesActual-1,1);return d instanceof Date&&d.getMonth()===m2.getMonth()&&d.getFullYear()===m2.getFullYear();});
+    const ingAnt=sumIn(mesAntRows,saleC.key);const delta=ingAnt>0?((ingresosMes-ingAnt)/ingAnt*100):0;
     const pagadas=mesRows.filter(r=>{const pC=state.columns.find(c=>c.type==='text'&&/pagad|paid|cobrad/i.test(c.name));return !pC||!/no|pend|false|0/i.test(String(r[pC.key]??''));});
     const ticket=pagadas.length?ingresosMes/pagadas.length:0;
     const paidC=state.columns.find(c=>c.type==='text'&&/pagad|paid|cobrad/i.test(c.name));
     const pendientes=paidC?rows.filter(r=>/no|pend|false|0/i.test(String(r[paidC.key]??''))):[];
-    const totalPend=sumIn(pendientes,saleC.key);
-    sec.hidden=false;
+    const totalPend=sumIn(pendientes,saleC.key);sec.hidden=false;
     const grid=$('#finSummary');
     grid.innerHTML=`
-      <div class="fin-card income">
-        <span class="fn-ic">💵</span>
-        <span class="fn-lbl">Ingresos del mes</span>
-        <span class="fn-val">${Utils.fmtCur(ingresosMes,saleC.sym)}</span>
-        <span class="fn-sub">${Utils.fmtInt(mesRows.length)} órdenes · ${Utils.fmtDate(new Date(anioActual,mesActual,1))}</span>
-      </div>
-      <div class="fin-card expense">
-        <span class="fn-ic">💸</span>
-        <span class="fn-lbl">Gastos del mes</span>
-        <span class="fn-val">${Utils.fmtCur(gastosMes,expC?.sym||saleC.sym)}</span>
-        <span class="fn-sub">${expC?'Costos registrados':'Estimado 60%'}</span>
-      </div>
-      <div class="fin-card profit ${ganancia>=0?'positive':'negative'}">
-        <span class="fn-ic">${ganancia>=0?'📈':'📉'}</span>
-        <span class="fn-lbl">Ganancia neta</span>
-        <span class="fn-val">${ganancia>=0?'+':''}${Utils.fmtCur(ganancia,saleC.sym)}</span>
-        <span class="fn-sub">Margen ${ingresosMes>0?Math.round(ganancia/ingresosMes*100):0}%</span>
-      </div>
-      <div class="fin-card income">
-        <span class="fn-ic">🎫</span>
-        <span class="fn-lbl">Ticket promedio</span>
-        <span class="fn-val">${Utils.fmtCur(ticket,saleC.sym)}</span>
-        <span class="fn-sub">${Utils.fmtInt(pagadas.length)} pagadas</span>
-      </div>
-      <div class="fin-card expense">
-        <span class="fn-ic">💳</span>
-        <span class="fn-lbl">Cuenta corriente</span>
-        <span class="fn-val">${Utils.fmtCur(totalPend,saleC.sym)}</span>
-        <span class="fn-sub">${Utils.fmtInt(pendientes.length)} pendientes</span>
-      </div>
-      <div class="fin-card ${delta>=0?'profit positive':'profit negative'}">
-        <span class="fn-ic">${delta>=0?'📊':'📉'}</span>
-        <span class="fn-lbl">Vs mes anterior</span>
-        <span class="fn-val">${delta>=0?'+':''}${Math.round(delta)}%</span>
-        <span class="fn-sub">Mes previo: ${Utils.fmtCur(ingAnt,saleC.sym)}</span>
-      </div>
-    `;
+      <div class="fin-card income"><span class="fn-ic">💵</span><span class="fn-lbl">Ingresos del mes</span><span class="fn-val">${Utils.fmtCur(ingresosMes,saleC.sym)}</span><span class="fn-sub">${Utils.fmtInt(mesRows.length)} órdenes · ${Utils.fmtDate(new Date(anioActual,mesActual,1))}</span></div>
+      <div class="fin-card expense"><span class="fn-ic">💸</span><span class="fn-lbl">Gastos del mes</span><span class="fn-val">${Utils.fmtCur(gastosMes,expC?.sym||saleC.sym)}</span><span class="fn-sub">${expC?'Costos registrados':'Estimado 60%'}</span></div>
+      <div class="fin-card profit ${ganancia>=0?'positive':'negative'}"><span class="fn-ic">${ganancia>=0?'📈':'📉'}</span><span class="fn-lbl">Ganancia neta</span><span class="fn-val">${ganancia>=0?'+':''}${Utils.fmtCur(ganancia,saleC.sym)}</span><span class="fn-sub">Margen ${ingresosMes>0?Math.round(ganancia/ingresosMes*100):0}%</span></div>
+      <div class="fin-card income"><span class="fn-ic">🎫</span><span class="fn-lbl">Ticket promedio</span><span class="fn-val">${Utils.fmtCur(ticket,saleC.sym)}</span><span class="fn-sub">${Utils.fmtInt(pagadas.length)} pagadas</span></div>
+      <div class="fin-card expense"><span class="fn-ic">💳</span><span class="fn-lbl">Cuenta corriente</span><span class="fn-val">${Utils.fmtCur(totalPend,saleC.sym)}</span><span class="fn-sub">${Utils.fmtInt(pendientes.length)} pendientes</span></div>
+      <div class="fin-card ${delta>=0?'profit positive':'profit negative'}"><span class="fn-ic">${delta>=0?'📊':'📉'}</span><span class="fn-lbl">Vs mes anterior</span><span class="fn-val">${delta>=0?'+':''}${Math.round(delta)}%</span><span class="fn-sub">Mes previo: ${Utils.fmtCur(ingAnt,saleC.sym)}</span></div>`;
     $('#finInfo').innerHTML=`<b>${Utils.fmtInt(mesRows.length)}</b> órdenes en ${MESES[mesActual]} ${anioActual}`;
   }
 };
 
-/* ================= OperationsEngine ================= */
 const OperationsEngine={
   render(rows){
-    const sec=$('#operationsSection');
-    const ws=state.columns._ws;if(!ws||!state.workshopMode){sec.hidden=true;return;}
-    sec.hidden=false;
-    const stC=ws.status||findStatusCol(state.columns);
-    const mecC=ws.mechanic;
-    const svC=ws.service||roleCol('category');
-    const durC=ws.duration||ws.labor_hours;
-    const dateC=roleCol('date');
-    const rwC=ws.rework;
-    const grid=$('#opsGrid');
-    const out=[];
-    if(durC&&svC){
-      const bySvc=new Map();
+    const sec=$('#operationsSection');const ws=state.columns._ws;if(!ws||!state.workshopMode){sec.hidden=true;return;}sec.hidden=false;
+    const stC=ws.status||findStatusCol(state.columns);const mecC=ws.mechanic;const svC=ws.service||roleCol('category');
+    const durC=ws.duration||ws.labor_hours;const dateC=roleCol('date');const rwC=ws.rework;
+    const grid=$('#opsGrid');const out=[];
+    if(durC&&svC){const bySvc=new Map();
       rows.forEach(r=>{const s=r[svC.key],v=valNum(r[durC.key]);if(s!=null&&v!=null){const e=bySvc.get(s)||{s:0,c:0};e.s+=v;e.c++;bySvc.set(s,e);}});
       const arr=[...bySvc.entries()].filter(([_,e])=>e.c>=3).map(([s,e])=>({s,a:e.s/e.c,c:e.c})).sort((a,b)=>a.a-b.a);
-      if(arr.length){
+      if(arr.length){const avgGlobal=rows.reduce((a,r)=>{const v=valNum(r[durC.key]);return v!=null?a+v:a;},0)/Math.max(1,rows.filter(r=>valNum(r[durC.key])!=null).length);
         const min=arr[0],max=arr[arr.length-1];
-        const avgGlobal=rows.reduce((a,r)=>{const v=valNum(r[durC.key]);return v!=null?a+v:a;},0)/rows.filter(r=>valNum(r[durC.key])!=null).length;
-        out.push({lbl:'Tiempo promedio reparación',val:avgGlobal.toFixed(0)+' min',sub:`${Utils.trunc(max.s,18)}: ${max.a.toFixed(0)} min · ${Utils.trunc(min.s,18)}: ${min.a.toFixed(0)} min`});
-      }
-    }
-    if(rwC){
-      const rw=rows.filter(r=>/s[ií]|yes|true|1/i.test(String(r[rwC.key]??''))).length;
-      const rate=rows.length?rw/rows.length*100:0;
-      out.push({lbl:'Tasa de retrabajos',val:rate.toFixed(1)+'%',sub:`${rw} vehículos volvieron por la misma falla`,pct:Math.min(100,rate*10)});
-    }
-    if(durC){
-      const hrs=rows.reduce((a,r)=>{const v=valNum(r[durC.key]);return v!=null?a+v:a;},0);
-      const diasActivos=30;const bahias=Math.max(1,mecC?distinctIn(rows,mecC.key):3);
-      const hrsDisp=bahias*diasActivos*8;
-      const util=hrsDisp>0?hrs/hrsDisp*100:0;
-      out.push({lbl:'Utilización del taller',val:Math.round(util)+'%',sub:`${Utils.fmtNum(hrs)}h ocupadas / ${Utils.fmtNum(hrsDisp)}h disponibles`,pct:Math.min(100,util)});
-    }
-    if(dateC){
-      const inC=state.columns.find(c=>c.type==='date'&&/ingreso|recepci|admission/i.test(c.name));
+        out.push({lbl:'Tiempo promedio reparación',val:avgGlobal.toFixed(0)+' min',sub:`${Utils.trunc(max.s,18)}: ${max.a.toFixed(0)} min · ${Utils.trunc(min.s,18)}: ${min.a.toFixed(0)} min`});}}
+    if(rwC){const rw=rows.filter(r=>/s[ií]|yes|true|1/i.test(String(r[rwC.key]??''))).length;
+      const rate=rows.length?rw/rows.length*100:0;out.push({lbl:'Tasa de retrabajos',val:rate.toFixed(1)+'%',sub:`${rw} vehículos volvieron por la misma falla`,pct:Math.min(100,rate*10)});}
+    if(durC){const hrs=rows.reduce((a,r)=>{const v=valNum(r[durC.key]);return v!=null?a+v:a;},0);
+      const diasActivos=30;const bahias=Math.max(1,mecC?distinctIn(rows,mecC.key):3);const hrsDisp=bahias*diasActivos*8;
+      const util=hrsDisp>0?hrs/hrsDisp*100:0;out.push({lbl:'Utilización del taller',val:Math.round(util)+'%',sub:`${Utils.fmtNum(hrs)}h ocupadas / ${Utils.fmtNum(hrsDisp)}h disponibles`,pct:Math.min(100,util)});}
+    if(dateC){const inC=state.columns.find(c=>c.type==='date'&&/ingreso|recepci|admission/i.test(c.name));
       const egC=state.columns.find(c=>c.type==='date'&&/egreso|salida|entrega|completado|finished/i.test(c.name));
-      if(inC&&egC){
-        let total=0,cnt=0;
-        rows.forEach(r=>{const a=r[inC.key],b=r[egC.key];if(a&&b&&b>a){total+=(b-a)/864e5;cnt++;}});
-        const avg=cnt?total/cnt:0;
-        out.push({lbl:'Tiempo espera cliente',val:avg.toFixed(1)+' días',sub:`${cnt} órdenes completas`});
-      }
-    }
-    if(mecC){
-      const byMec=groupAgg(rows,mecC.key,null,'count',1);
-      if(byMec[0]){
-        const top=byMec[0];
-        out.push({lbl:'Mecánico más productivo',val:Utils.fmtInt(top.value)+' servicios',sub:Utils.esc(Utils.trunc(top.label,24))});
-      }
-    }
-    if(svC&&findSaleCol(state.columns)){
-      const g=groupAgg(rows,svC.key,findSaleCol(state.columns).key,'sum',99);
+      if(inC&&egC){let total=0,cnt=0;
+        rows.forEach(r=>{const a=r[inC.key],b=r[egC.key];if(a instanceof Date&&b instanceof Date&&b>a){total+=(b-a)/864e5;cnt++;}});
+        const avg=cnt?total/cnt:0;out.push({lbl:'Tiempo espera cliente',val:avg.toFixed(1)+' días',sub:`${cnt} órdenes completas`});}}
+    if(mecC){const byMec=groupAgg(rows,mecC.key,null,'count',1);
+      if(byMec[0]){const top=byMec[0];out.push({lbl:'Mecánico más productivo',val:Utils.fmtInt(top.value)+' servicios',sub:Utils.esc(Utils.trunc(top.label,24))});}}
+    if(svC&&findSaleCol(state.columns)){const g=groupAgg(rows,svC.key,findSaleCol(state.columns).key,'sum',99);
       const total=g.reduce((a,b)=>a+b.value,0)||1;
-      const rep=g.find(x=>/repuesto|pieza|part|spare/i.test(x.label));
-      const labor=g.find(x=>/mano|labor|trabaj|servicio/i.test(x.label));
-      if(rep||labor){
-        const repPct=rep?(rep.value/total*100):0;
-        const labPct=labor?(labor.value/total*100):0;
-        out.push({lbl:'Repuestos vs Mano de obra',val:`${Math.round(repPct)}% / ${Math.round(labPct)}%`,sub:`Repuestos: ${Utils.fmtCur(rep?.value||0)} · Labor: ${Utils.fmtCur(labor?.value||0)}`});
-      }
-    }
+      const rep=g.find(x=>/repuesto|pieza|part|spare/i.test(x.label));const labor=g.find(x=>/mano|labor|trabaj|servicio/i.test(x.label));
+      if(rep||labor){const repPct=rep?(rep.value/total*100):0;const labPct=labor?(labor.value/total*100):0;
+        out.push({lbl:'Repuestos vs Mano de obra',val:`${Math.round(repPct)}% / ${Math.round(labPct)}%`,sub:`Repuestos: ${Utils.fmtCur(rep?.value||0)} · Labor: ${Utils.fmtCur(labor?.value||0)}`});}}
     const qtC=ws.quote;
-    if(qtC){
-      const approved=rows.filter(r=>/aprob|acept|s[ií]|yes/i.test(String(r[qtC.key]??''))).length;
-      const total=rows.filter(r=>r[qtC.key]!=null&&String(r[qtC.key]).trim()!=='').length;
-      const conv=total?approved/total*100:0;
-      out.push({lbl:'Conversión presupuesto→trabajo',val:conv.toFixed(0)+'%',sub:`${approved} aprobados de ${total} presupuestados`,pct:conv});
-    }
-    grid.innerHTML=out.map((m,i)=>`
-      <div class="ws-metric" style="animation-delay:${i*50}ms">
-        <span class="wm-lbl">${m.lbl}</span>
-        <span class="wm-val">${m.val}</span>
-        ${m.pct!=null?`<div class="wm-bar"><div style="width:${m.pct}%"></div></div>`:''}
-        <span class="wm-sub">${m.sub}</span>
-      </div>`).join('');
+    if(qtC){const approved=rows.filter(r=>/aprob|acept|s[ií]|yes/i.test(String(r[qtC.key]??''))).length;
+      const total=rows.filter(r=>r[qtC.key]!=null&&String(r[qtC.key]).trim()!=='').length;const conv=total?approved/total*100:0;
+      out.push({lbl:'Conversión presupuesto→trabajo',val:conv.toFixed(0)+'%',sub:`${approved} aprobados de ${total} presupuestados`,pct:conv});}
+    grid.innerHTML=out.map((m,i)=>`<div class="ws-metric" style="animation-delay:${i*50}ms"><span class="wm-lbl">${m.lbl}</span><span class="wm-val">${m.val}</span>${m.pct!=null?`<div class="wm-bar"><div style="width:${m.pct}%"></div></div>`:''}<span class="wm-sub">${m.sub}</span></div>`).join('');
     $('#opsInfo').innerHTML=`<b>${out.length}</b> métricas operativas`;
   }
 };
 
-/* ================= ClientsEngine ================= */
 const ClientsEngine={
   render(rows){
-    const sec=$('#clientsSection');
-    const ws=state.columns._ws;if(!ws||!state.workshopMode){sec.hidden=true;return;}
-    sec.hidden=false;
+    const sec=$('#clientsSection');const ws=state.columns._ws;if(!ws||!state.workshopMode){sec.hidden=true;return;}sec.hidden=false;
     const cliC=ws.client;const vehC=ws.vehicle;const saleC=findSaleCol(state.columns);
     const dateC=roleCol('date');const refC=ws.referral;const ratC=ws.rating;const fleetC=ws.fleet;
-    const grid=$('#cliGrid');
-    const out=[];
+    const grid=$('#cliGrid');const out=[];
     if(cliC)out.push({lbl:'Clientes registrados',val:Utils.fmtInt(distinctIn(rows,cliC.key)),sub:'Base completa'});
-    if(cliC&&dateC){
-      const byClient=new Map();
-      rows.forEach(r=>{const c=r[cliC.key];if(c!=null){const e=byClient.get(c)||0;byClient.set(c,e+1);}});
-      const recurrent=[...byClient.values()].filter(v=>v>=2).length;
-      const nuevos=[...byClient.values()].filter(v=>v===1).length;
-      out.push({lbl:'Recurrencia',val:`${Utils.fmtInt(recurrent)} rec · ${Utils.fmtInt(nuevos)} nuevos`,sub:`${Math.round(recurrent/Math.max(1,byClient.size)*100)}% fieles`});
-    }
-    if(ratC){
-      const vs=rows.map(r=>valNum(r[ratC.key])).filter(v=>v!=null);
-      const avg=vs.length?vs.reduce((a,b)=>a+b,0)/vs.length:0;
-      out.push({lbl:'Satisfacción promedio',val:avg.toFixed(1)+'/5 ⭐',sub:`${Utils.fmtInt(vs.length)} encuestas`,pct:avg/5*100});
-    }
-    if(cliC&&dateC){
-      const byClient=new Map();
-      rows.forEach(r=>{const c=r[cliC.key],d=r[dateC.key];if(c!=null&&d){const a=byClient.get(c)||[];a.push(d);byClient.set(c,a);}});
-      let totalGap=0,gapCount=0;
-      byClient.forEach(visits=>{visits.sort((a,b)=>a-b);for(let i=1;i<visits.length;i++){totalGap+=(visits[i]-visits[i-1])/864e5;gapCount++;}});
-      const avgGap=gapCount?totalGap/gapCount:0;
-      out.push({lbl:'Tiempo entre visitas',val:avgGap.toFixed(0)+' días',sub:`${gapCount} re-visitas`});
-    }
+    if(cliC&&dateC){const byClient=new Map();
+      rows.forEach(r=>{const c=r[cliC.key];if(c!=null){byClient.set(c,(byClient.get(c)||0)+1);}});
+      const recurrent=[...byClient.values()].filter(v=>v>=2).length;const nuevos=[...byClient.values()].filter(v=>v===1).length;
+      out.push({lbl:'Recurrencia',val:`${Utils.fmtInt(recurrent)} rec · ${Utils.fmtInt(nuevos)} nuevos`,sub:`${Math.round(recurrent/Math.max(1,byClient.size)*100)}% fieles`});}
+    if(ratC){const vs=rows.map(r=>valNum(r[ratC.key])).filter(v=>v!=null);const avg=vs.length?vs.reduce((a,b)=>a+b,0)/vs.length:0;
+      out.push({lbl:'Satisfacción promedio',val:avg.toFixed(1)+'/5 ⭐',sub:`${Utils.fmtInt(vs.length)} encuestas`,pct:avg/5*100});}
+    if(cliC&&dateC){const byClient=new Map();
+      rows.forEach(r=>{const c=r[cliC.key],d=r[dateC.key];if(c!=null&&d instanceof Date&&!isNaN(d.getTime())){const a=byClient.get(c)||[];a.push(d);byClient.set(c,a);}});
+      let totalGap=0,gapCount=0;byClient.forEach(visits=>{visits.sort((a,b)=>a-b);for(let i=1;i<visits.length;i++){totalGap+=(visits[i]-visits[i-1])/864e5;gapCount++;}});
+      const avgGap=gapCount?totalGap/gapCount:0;out.push({lbl:'Tiempo entre visitas',val:avgGap.toFixed(0)+' días',sub:`${gapCount} re-visitas`});}
     const svC=ws.service||roleCol('category');
-    if(svC){
-      const top=groupAgg(rows,svC.key,null,'count',10);
-      if(top[0])out.push({lbl:'Top servicio',val:Utils.fmtInt(top[0].value)+' solicitudes',sub:Utils.esc(Utils.trunc(top[0].label,24))});
-    }
-    if(refC){
-      const refs=rows.filter(r=>/s[ií]|yes|true|1/i.test(String(r[refC.key]??''))).length;
-      out.push({lbl:'Clientes por referido',val:Utils.fmtInt(refs),sub:`${rows.length?Math.round(refs/rows.length*100):0}% del total`});
-    }
-    if(fleetC){
-      const fleets=rows.filter(r=>/s[ií]|yes|true|1/i.test(String(r[fleetC.key]??''))).length;
-      out.push({lbl:'Órdenes de flotas',val:Utils.fmtInt(fleets),sub:`${rows.length?Math.round(fleets/rows.length*100):0}% ingresos empresa`});
-    }
-    if(cliC&&saleC){
-      const byClient=new Map();
+    if(svC){const top=groupAgg(rows,svC.key,null,'count',10);if(top[0])out.push({lbl:'Top servicio',val:Utils.fmtInt(top[0].value)+' solicitudes',sub:Utils.esc(Utils.trunc(top[0].label,24))});}
+    if(refC){const refs=rows.filter(r=>/s[ií]|yes|true|1/i.test(String(r[refC.key]??''))).length;
+      out.push({lbl:'Clientes por referido',val:Utils.fmtInt(refs),sub:`${rows.length?Math.round(refs/rows.length*100):0}% del total`});}
+    if(fleetC){const fleets=rows.filter(r=>/s[ií]|yes|true|1/i.test(String(r[fleetC.key]??''))).length;
+      out.push({lbl:'Órdenes de flotas',val:Utils.fmtInt(fleets),sub:`${rows.length?Math.round(fleets/rows.length*100):0}% ingresos empresa`});}
+    if(cliC&&saleC){const byClient=new Map();
       rows.forEach(r=>{const c=r[cliC.key],v=valNum(r[saleC.key]);if(c!=null&&v!=null){const e=byClient.get(c)||{s:0,c:0};e.s+=v;e.c++;byClient.set(c,e);}});
       const avg=[...byClient.values()].reduce((a,e)=>a+e.s/e.c,0)/Math.max(1,byClient.size);
-      out.push({lbl:'Ticket promedio por cliente',val:Utils.fmtCur(avg,saleC.sym),sub:`${Utils.fmtInt(byClient.size)} clientes`});
-    }
-    grid.innerHTML=out.map((m,i)=>`
-      <div class="ws-metric" style="animation-delay:${i*50}ms">
-        <span class="wm-lbl">${m.lbl}</span>
-        <span class="wm-val">${m.val}</span>
-        ${m.pct!=null?`<div class="wm-bar"><div style="width:${m.pct}%"></div></div>`:''}
-        <span class="wm-sub">${m.sub}</span>
-      </div>`).join('');
+      out.push({lbl:'Ticket promedio por cliente',val:Utils.fmtCur(avg,saleC.sym),sub:`${Utils.fmtInt(byClient.size)} clientes`});}
+    grid.innerHTML=out.map((m,i)=>`<div class="ws-metric" style="animation-delay:${i*50}ms"><span class="wm-lbl">${m.lbl}</span><span class="wm-val">${m.val}</span>${m.pct!=null?`<div class="wm-bar"><div style="width:${m.pct}%"></div></div>`:''}<span class="wm-sub">${m.sub}</span></div>`).join('');
     $('#cliInfo').innerHTML=`Análisis de <b>${cliC?Utils.fmtInt(distinctIn(rows,cliC.key)):0}</b> clientes`;
   }
 };
 
-/* ================= InventoryEngine ================= */
 const InventoryEngine={
   render(rows){
-    const sec=$('#inventorySection');
-    const ws=state.columns._ws;
-    const spareC=ws.spare||roleCol('product');
-    const stockC=roleCol('stock');
-    if(!spareC&&!stockC){sec.hidden=true;return;}
-    sec.hidden=false;
-    const grid=$('#invGrid');
-    const out=[];
-    if(spareC){
-      const top=groupAgg(rows,spareC.key,null,'count',10);
-      if(top[0])out.push({lbl:'Rotación: top repuesto',val:Utils.fmtInt(top[0].value)+' usos',sub:Utils.esc(Utils.trunc(top[0].label,24))});
-    }
-    if(stockC){
-      const critical=rows.filter(r=>{const v=valNum(r[stockC.key]);return v!=null&&v<=5&&v>0;}).length;
+    const sec=$('#inventorySection');const ws=state.columns._ws;const spareC=ws.spare||roleCol('product');const stockC=roleCol('stock');
+    if(!spareC&&!stockC){sec.hidden=true;return;}sec.hidden=false;const grid=$('#invGrid');const out=[];
+    if(spareC){const top=groupAgg(rows,spareC.key,null,'count',10);if(top[0])out.push({lbl:'Rotación: top repuesto',val:Utils.fmtInt(top[0].value)+' usos',sub:Utils.esc(Utils.trunc(top[0].label,24))});}
+    if(stockC){const critical=rows.filter(r=>{const v=valNum(r[stockC.key]);return v!=null&&v<=5&&v>0;}).length;
       out.push({lbl:'Stock crítico (≤5)',val:Utils.fmtInt(critical),sub:'Piezas a reponer urgente'});
       const zero=rows.filter(r=>{const v=valNum(r[stockC.key]);return v!=null&&v===0;}).length;
-      if(zero)out.push({lbl:'Sin stock',val:Utils.fmtInt(zero),sub:'Reponer de inmediato'});
-    }
+      if(zero)out.push({lbl:'Sin stock',val:Utils.fmtInt(zero),sub:'Reponer de inmediato'});}
     const inC=state.columns.find(c=>c.type==='date'&&/ingreso|recepci|pedido|order|admission/i.test(c.name));
     const egC=state.columns.find(c=>c.type==='date'&&/egreso|salida|entrega|llegada/i.test(c.name));
-    if(inC&&egC){
-      let total=0,cnt=0;
-      rows.forEach(r=>{const a=r[inC.key],b=r[egC.key];if(a&&b&&b>a){total+=(b-a)/864e5;cnt++;}});
-      const avg=cnt?total/cnt:0;
-      out.push({lbl:'Tiempo de reposición',val:avg.toFixed(1)+' días',sub:`Desde pedido hasta llegada`});
-    }
+    if(inC&&egC){let total=0,cnt=0;rows.forEach(r=>{const a=r[inC.key],b=r[egC.key];if(a instanceof Date&&b instanceof Date&&b>a){total+=(b-a)/864e5;cnt++;}});
+      const avg=cnt?total/cnt:0;out.push({lbl:'Tiempo de reposición',val:avg.toFixed(1)+' días',sub:`Desde pedido hasta llegada`});}
     const obsC=state.columns.find(c=>/obsol|inm[oó]vil|viej|antig/i.test(c.name));
-    if(obsC){
-      const obs=rows.filter(r=>/s[ií]|yes|true|1/i.test(String(r[obsC.key]??''))).length;
-      out.push({lbl:'Repuestos obsoletos',val:Utils.fmtInt(obs),sub:`${rows.length?Math.round(obs/rows.length*100):0}% del inventario`});
-    }
-    if(spareC&&findSaleCol(state.columns)){
-      const totalSvc=rows.length;
+    if(obsC){const obs=rows.filter(r=>/s[ií]|yes|true|1/i.test(String(r[obsC.key]??''))).length;
+      out.push({lbl:'Repuestos obsoletos',val:Utils.fmtInt(obs),sub:`${rows.length?Math.round(obs/rows.length*100):0}% del inventario`});}
+    if(spareC&&findSaleCol(state.columns)){const totalSvc=rows.length;
       const totalSpare=rows.filter(r=>r[spareC.key]!=null&&String(r[spareC.key]).trim()!=='').length;
-      out.push({lbl:'Repuestos por servicio',val:(totalSpare/Math.max(1,totalSvc)).toFixed(2),sub:`${totalSpare} repuestos en ${totalSvc} órdenes`});
-    }
-    grid.innerHTML=out.map((m,i)=>`
-      <div class="ws-metric" style="animation-delay:${i*50}ms">
-        <span class="wm-lbl">${m.lbl}</span>
-        <span class="wm-val">${m.val}</span>
-        <span class="wm-sub">${m.sub}</span>
-      </div>`).join('');
+      out.push({lbl:'Repuestos por servicio',val:(totalSpare/Math.max(1,totalSvc)).toFixed(2),sub:`${totalSpare} repuestos en ${totalSvc} órdenes`});}
+    grid.innerHTML=out.map((m,i)=>`<div class="ws-metric" style="animation-delay:${i*50}ms"><span class="wm-lbl">${m.lbl}</span><span class="wm-val">${m.val}</span><span class="wm-sub">${m.sub}</span></div>`).join('');
     $('#invInfo').innerHTML=`Análisis de inventario`;
   }
 };
 
-/* ================= StrategyEngine ================= */
 const StrategyEngine={
   render(rows){
-    const sec=$('#strategySection');
-    const ws=state.columns._ws;if(!ws||!state.workshopMode){sec.hidden=true;return;}
-    sec.hidden=false;
+    const sec=$('#strategySection');const ws=state.columns._ws;if(!ws||!state.workshopMode){sec.hidden=true;return;}sec.hidden=false;
     const dateC=roleCol('date');const saleC=findSaleCol(state.columns);const chanC=ws.channel;const cliC=ws.client;const fleetC=ws.fleet;
-    const grid=$('#strGrid');
-    const out=[];
-    if(chanC&&saleC){
-      const byChan=groupAgg(rows,chanC.key,saleC.key,'sum',5);
-      const total=byChan.reduce((a,b)=>a+b.value,0)||1;
-      if(byChan[0])out.push({lbl:'Canal líder',val:Utils.fmtCur(byChan[0].value,saleC.sym),sub:`${Utils.esc(Utils.trunc(byChan[0].label,20))} · ${Math.round(byChan[0].value/total*100)}%`,pct:Math.round(byChan[0].value/total*100)});
-    }
-    if(dateC&&saleC){
-      const series=seriesMap(rows,dateC.key,saleC.key,'sum');
+    const grid=$('#strGrid');const out=[];
+    if(chanC&&saleC){const byChan=groupAgg(rows,chanC.key,saleC.key,'sum',5);const total=byChan.reduce((a,b)=>a+b.value,0)||1;
+      if(byChan[0])out.push({lbl:'Canal líder',val:Utils.fmtCur(byChan[0].value,saleC.sym),sub:`${Utils.esc(Utils.trunc(byChan[0].label,20))} · ${Math.round(byChan[0].value/total*100)}%`,pct:Math.round(byChan[0].value/total*100)});}
+    if(dateC&&saleC){const series=seriesMap(rows,dateC.key,saleC.key,'sum');
       const arr=[...series.entries()].sort((a,b)=>a[0].localeCompare(b[0]));
-      if(arr.length>=2){
-        const last=arr[arr.length-1][1].v;
-        const prev=arr[arr.length-2][1].v;
+      if(arr.length>=2){const last=arr[arr.length-1][1].v;const prev=arr[arr.length-2][1].v;
         const delta=prev>0?((last-prev)/prev*100):0;
-        out.push({lbl:'Evolución mensual',val:`${delta>=0?'+':''}${Math.round(delta)}%`,sub:`${MESES[+arr[arr.length-1][0].split('-')[1]-1]}: ${Utils.fmtCur(last,saleC.sym)}`,pct:Math.min(100,Math.max(0,50+delta))});
-      }
-    }
-    if(dateC&&saleC){
-      const byMonth=new Map();
-      rows.forEach(r=>{const d=r[dateC.key];if(!d)return;const m=d.getMonth();const v=valNum(r[saleC.key])||0;const e=byMonth.get(m)||0;byMonth.set(m,e+v);});
-      if(byMonth.size>=3){
-        const arr=[...byMonth.entries()].sort((a,b)=>b[1]-a[1]);
-        const peak=arr[0],low=arr[arr.length-1];
-        out.push({lbl:'Estacionalidad',val:`Pico en ${MESES[peak[0]]}`,sub:`Mínimo en ${MESES[low[0]]} · planifica campañas`});
-      }
-    }
-    if(fleetC&&saleC&&cliC){
-      const fleetRows=rows.filter(r=>/s[ií]|yes|true|1/i.test(String(r[fleetC.key]??'')));
+        out.push({lbl:'Evolución mensual',val:`${delta>=0?'+':''}${Math.round(delta)}%`,sub:`${MESES[+arr[arr.length-1][0].split('-')[1]-1]}: ${Utils.fmtCur(last,saleC.sym)}`,pct:Math.min(100,Math.max(0,50+delta))});}}
+    if(dateC&&saleC){const byMonth=new Map();
+      rows.forEach(r=>{const d=r[dateC.key];if(!(d instanceof Date)||isNaN(d.getTime()))return;const m=d.getMonth();const v=valNum(r[saleC.key])||0;byMonth.set(m,(byMonth.get(m)||0)+v);});
+      if(byMonth.size>=3){const arr=[...byMonth.entries()].sort((a,b)=>b[1]-a[1]);const peak=arr[0],low=arr[arr.length-1];
+        out.push({lbl:'Estacionalidad',val:`Pico en ${MESES[peak[0]]}`,sub:`Mínimo en ${MESES[low[0]]} · planifica campañas`});}}
+    if(fleetC&&saleC&&cliC){const fleetRows=rows.filter(r=>/s[ií]|yes|true|1/i.test(String(r[fleetC.key]??'')));
       const partRows=rows.filter(r=>!/s[ií]|yes|true|1/i.test(String(r[fleetC.key]??'')));
       const fleetAvg=fleetRows.length?sumIn(fleetRows,saleC.key)/fleetRows.length:0;
       const partAvg=partRows.length?sumIn(partRows,saleC.key)/partRows.length:0;
-      out.push({lbl:'Rentabilidad por tipo',val:`Flota ${Utils.fmtNum(fleetAvg)} · Part. ${Utils.fmtNum(partAvg)}`,sub:`${saleC.sym} ticket promedio`});
-    }
-    if(chanC){
-      const online=rows.filter(r=>/online|web|whatsapp|digital/i.test(String(r[chanC.key]??''))).length;
-      out.push({lbl:'Conversiones digitales',val:Utils.fmtInt(online),sub:`${rows.length?Math.round(online/rows.length*100):0}% del total · invierte más`});
-    }
-    grid.innerHTML=out.map((m,i)=>`
-      <div class="ws-metric" style="animation-delay:${i*50}ms">
-        <span class="wm-lbl">${m.lbl}</span>
-        <span class="wm-val">${m.val}</span>
-        ${m.pct!=null?`<div class="wm-bar"><div style="width:${m.pct}%"></div></div>`:''}
-        <span class="wm-sub">${m.sub}</span>
-      </div>`).join('');
+      out.push({lbl:'Rentabilidad por tipo',val:`Flota ${Utils.fmtNum(fleetAvg)} · Part. ${Utils.fmtNum(partAvg)}`,sub:`${saleC.sym} ticket promedio`});}
+    if(chanC){const online=rows.filter(r=>/online|web|whatsapp|digital/i.test(String(r[chanC.key]??''))).length;
+      out.push({lbl:'Conversiones digitales',val:Utils.fmtInt(online),sub:`${rows.length?Math.round(online/rows.length*100):0}% del total · invierte más`});}
+    grid.innerHTML=out.map((m,i)=>`<div class="ws-metric" style="animation-delay:${i*50}ms"><span class="wm-lbl">${m.lbl}</span><span class="wm-val">${m.val}</span>${m.pct!=null?`<div class="wm-bar"><div style="width:${m.pct}%"></div></div>`:''}<span class="wm-sub">${m.sub}</span></div>`).join('');
     $('#strInfo').innerHTML=`Planificación estratégica`;
   }
 };
 
-/* ================= PDFEngine ================= */
 const PDFEngine={
   async generate(){
-    Utils.loading(true);
-    Utils.toast('📄 Generando reporte PDF inteligente…','ok');
+    Utils.loading(true);Utils.toast('📄 Generando reporte PDF inteligente…','ok');
     try{
-      if(!window.jspdf||!window.html2canvas){
-        throw new Error('Librerías PDF no cargadas. Verifica tu conexión a internet.');
-      }
-      const {jsPDF}=window.jspdf;
-      const pdf=new jsPDF('p','mm','a4');
-      const pageW=pdf.internal.pageSize.getWidth();
-      const pageH=pdf.internal.pageSize.getHeight();
-      const margin=12;
-      const contentW=pageW-margin*2;
-
-      let y=margin;
-      const addPage=()=>{pdf.addPage();y=margin;};
-      const checkSpace=(h)=>{if(y+h>pageH-margin){addPage();}};
-
+      if(!window.jspdf||!window.html2canvas)throw new Error('Librerías PDF no cargadas. Verifica tu conexión a internet.');
+      const {jsPDF}=window.jspdf;const pdf=new jsPDF('p','mm','a4');
+      const pageW=pdf.internal.pageSize.getWidth();const pageH=pdf.internal.pageSize.getHeight();const margin=12;
+      let y=margin;const addPage=()=>{pdf.addPage();y=margin;};const checkSpace=(h)=>{if(y+h>pageH-margin){addPage();}};
       const primary=getComputedStyle(document.documentElement).getPropertyValue('--primary').trim()||'#e10600';
-      const rgbHex=primary.replace('#','');
-      const pr=parseInt(rgbHex.substr(0,2),16);
-      const pg=parseInt(rgbHex.substr(2,2),16);
-      const pb=parseInt(rgbHex.substr(4,2),16);
-
-      pdf.setFillColor(7,9,12);
-      pdf.rect(0,0,pageW,pageH,'F');
-      pdf.setFillColor(pr,pg,pb);
-      pdf.rect(0,0,pageW,18,'F');
-      pdf.setTextColor(255,255,255);
-      pdf.setFont('helvetica','bold');
-      pdf.setFontSize(9);
+      const rgbHex=primary.replace('#','');const pr=parseInt(rgbHex.substr(0,2),16);const pg=parseInt(rgbHex.substr(2,2),16);const pb=parseInt(rgbHex.substr(4,2),16);
+      pdf.setFillColor(7,9,12);pdf.rect(0,0,pageW,pageH,'F');pdf.setFillColor(pr,pg,pb);pdf.rect(0,0,pageW,18,'F');
+      pdf.setTextColor(255,255,255);pdf.setFont('helvetica','bold');pdf.setFontSize(9);
       pdf.text('SKILL MECANIC · DASHBOARD INTELLIGENT ANALYTICS',margin,12);
       const fecha=new Date().toLocaleDateString('es',{day:'2-digit',month:'long',year:'numeric'});
       pdf.text(fecha,pageW-margin,12,{align:'right'});
-
-      pdf.setTextColor(pr,pg,pb);
-      pdf.setFontSize(44);
-      pdf.text('SKILL',pageW/2,75,{align:'center'});
-      pdf.setFontSize(28);
-      pdf.setTextColor(255,255,255);
-      pdf.text('MECANIC',pageW/2,95,{align:'center'});
-      pdf.setFontSize(10);
-      pdf.setTextColor(143,160,175);
-      pdf.text('Reporte ejecutivo generado automáticamente',pageW/2,108,{align:'center'});
-
-      pdf.setFontSize(9);
-      pdf.setTextColor(200,200,200);
+      pdf.setTextColor(pr,pg,pb);pdf.setFontSize(44);pdf.text('SKILL',pageW/2,75,{align:'center'});
+      pdf.setFontSize(28);pdf.setTextColor(255,255,255);pdf.text('MECANIC',pageW/2,95,{align:'center'});
+      pdf.setFontSize(10);pdf.setTextColor(143,160,175);pdf.text('Reporte ejecutivo generado automáticamente',pageW/2,108,{align:'center'});
+      pdf.setFontSize(9);pdf.setTextColor(200,200,200);
       pdf.text(`Fuente: ${state.source.label||'Datos'}`,margin,135);
       pdf.text(`Registros: ${Utils.fmtInt(state.rows.length)}`,margin,142);
       pdf.text(`Columnas: ${state.columns.length}`,margin,149);
       pdf.text(`Generado: ${new Date().toLocaleString('es')}`,margin,156);
       pdf.text(`Modo: ${state.workshopMode?'Taller especializado':'Genérico'}`,margin,163);
-
-      pdf.setFontSize(11);
-      pdf.setTextColor(pr,pg,pb);
-      pdf.text('RESUMEN EJECUTIVO',margin,180);
-      pdf.setFontSize(9);
-      pdf.setTextColor(220,220,220);
-      const rows=getFiltered();
-      const saleC=findSaleCol(state.columns);
-      const cliC=state.columns._ws?.client;
-      const vehC=state.columns._ws?.vehicle;
-      const stC=state.columns._ws?.status||findStatusCol(state.columns);
-
-      let ly=190;
-      pdf.text(`• Total registros en vista: ${Utils.fmtInt(rows.length)}`,margin,ly);ly+=6;
-      if(saleC){
-        const fact=sumIn(rows,saleC.key);
-        pdf.text(`• Facturación total: ${Utils.fmtCur(fact,saleC.sym)}`,margin,ly);ly+=6;
-      }
-      if(cliC)pdf.text(`• Clientes registrados: ${Utils.fmtInt(distinctIn(rows,cliC.key))}`,margin,(ly+=0)),ly+=6;
-      if(vehC)pdf.text(`• Vehículos registrados: ${Utils.fmtInt(distinctIn(rows,vehC.key))}`,margin,ly),ly+=6;
-      if(stC){
-        const completadas=rows.filter(r=>isCompleted(r[stC.key])).length;
+      pdf.setFontSize(11);pdf.setTextColor(pr,pg,pb);pdf.text('RESUMEN EJECUTIVO',margin,180);
+      pdf.setFontSize(9);pdf.setTextColor(220,220,220);
+      const rows=getFiltered();const saleC=findSaleCol(state.columns);
+      const cliC=state.columns._ws?.client;const vehC=state.columns._ws?.vehicle;const stC=state.columns._ws?.status||findStatusCol(state.columns);
+      let ly=190;pdf.text(`• Total registros en vista: ${Utils.fmtInt(rows.length)}`,margin,ly);ly+=6;
+      if(saleC){const fact=sumIn(rows,saleC.key);pdf.text(`• Facturación total: ${Utils.fmtCur(fact,saleC.sym)}`,margin,ly);ly+=6;}
+      if(cliC){pdf.text(`• Clientes registrados: ${Utils.fmtInt(distinctIn(rows,cliC.key))}`,margin,ly);ly+=6;}
+      if(vehC){pdf.text(`• Vehículos registrados: ${Utils.fmtInt(distinctIn(rows,vehC.key))}`,margin,ly);ly+=6;}
+      if(stC){const completadas=rows.filter(r=>isCompleted(r[stC.key])).length;
         const activas=rows.filter(r=>isInProgress(r[stC.key])||isPending(r[stC.key])||isWaitingParts(r[stC.key])||isDiagnosis(r[stC.key])).length;
         pdf.text(`• Órdenes completadas: ${Utils.fmtInt(completadas)}`,margin,ly);ly+=6;
-        pdf.text(`• Órdenes activas: ${Utils.fmtInt(activas)}`,margin,ly);ly+=6;
-      }
-
-      addPage();
-      pdf.setFillColor(255,255,255);
-      pdf.rect(0,0,pageW,pageH,'F');
-      pdf.setFillColor(pr,pg,pb);
-      pdf.rect(0,0,pageW,14,'F');
-      pdf.setTextColor(255,255,255);
-      pdf.setFontSize(11);
-      pdf.text('🛠️ OPERACIONES DEL TALLER',margin,9);
-      pdf.setTextColor(0,0,0);
-      y=22;
-
+        pdf.text(`• Órdenes activas: ${Utils.fmtInt(activas)}`,margin,ly);ly+=6;}
+      addPage();pdf.setFillColor(255,255,255);pdf.rect(0,0,pageW,pageH,'F');pdf.setFillColor(pr,pg,pb);pdf.rect(0,0,pageW,14,'F');
+      pdf.setTextColor(255,255,255);pdf.setFontSize(11);pdf.text('🛠️ OPERACIONES DEL TALLER',margin,9);
+      pdf.setTextColor(0,0,0);y=22;
       const drawSection=(title,items)=>{
-        checkSpace(20);
-        pdf.setFont('helvetica','bold');
-        pdf.setFontSize(13);
-        pdf.setTextColor(pr,pg,pb);
-        pdf.text(title,margin,y);y+=7;
-        pdf.setFont('helvetica','normal');
-        pdf.setFontSize(9);
-        pdf.setTextColor(50,50,50);
-        items.forEach(it=>{
-          checkSpace(8);
-          pdf.setFont('helvetica','bold');
-          pdf.text('▸ '+it.lbl+':',margin,y);
-          const w=pdf.getTextWidth('▸ '+it.lbl+': ');
-          pdf.setFont('helvetica','normal');
-          pdf.text(String(it.val),margin+w+1,y);
-          if(it.sub){
-            pdf.setFontSize(7);
-            pdf.setTextColor(120,120,120);
-            pdf.text('  '+it.sub,margin+w+1,y+4);
-            y+=7;
-            pdf.setFontSize(9);
-            pdf.setTextColor(50,50,50);
-          }else{y+=5;}
-        });
-        y+=4;
-      };
-
-      const opsItems=[];
-      const ws=state.columns._ws;
-      if(ws?.mechanic){
-        const byMec=groupAgg(rows,ws.mechanic.key,null,'count',1);
-        if(byMec[0])opsItems.push({lbl:'Mecánico más productivo',val:`${byMec[0].label} (${Utils.fmtInt(byMec[0].value)} servicios)`});
-      }
+        checkSpace(20);pdf.setFont('helvetica','bold');pdf.setFontSize(13);pdf.setTextColor(pr,pg,pb);pdf.text(title,margin,y);y+=7;
+        pdf.setFont('helvetica','normal');pdf.setFontSize(9);pdf.setTextColor(50,50,50);
+        items.forEach(it=>{checkSpace(8);pdf.setFont('helvetica','bold');pdf.text('▸ '+it.lbl+':',margin,y);
+          const w=pdf.getTextWidth('▸ '+it.lbl+': ');pdf.setFont('helvetica','normal');pdf.text(String(it.val),margin+w+1,y);
+          if(it.sub){pdf.setFontSize(7);pdf.setTextColor(120,120,120);pdf.text('  '+it.sub,margin+w+1,y+4);y+=7;pdf.setFontSize(9);pdf.setTextColor(50,50,50);}else{y+=5;}});y+=4;};
+      const opsItems=[];const ws=state.columns._ws;
+      if(ws?.mechanic){const byMec=groupAgg(rows,ws.mechanic.key,null,'count',1);if(byMec[0])opsItems.push({lbl:'Mecánico más productivo',val:`${byMec[0].label} (${Utils.fmtInt(byMec[0].value)} servicios)`});}
       const durC=ws?.duration||ws?.labor_hours;
-      if(durC){
-        const vs=rows.map(r=>valNum(r[durC.key])).filter(v=>v!=null);
-        if(vs.length)opsItems.push({lbl:'Tiempo promedio reparación',val:Utils.fmtNum(vs.reduce((a,b)=>a+b,0)/vs.length)+' min',sub:'Duración media por orden'});
-      }
-      const rwC=ws?.rework;
-      if(rwC){
-        const rw=rows.filter(r=>/s[ií]|yes|true|1/i.test(String(r[rwC.key]??''))).length;
-        opsItems.push({lbl:'Tasa de retrabajos',val:`${rows.length?(rw/rows.length*100).toFixed(1):0}%`,sub:`${rw} vehículos con retrabajo`});
-      }
-      if(stC){
-        const diag=rows.filter(r=>isDiagnosis(r[stC.key])).length;
-        const wait=rows.filter(r=>isWaitingParts(r[stC.key])).length;
-        const prog=rows.filter(r=>isInProgress(r[stC.key])).length;
-        opsItems.push({lbl:'Diagnóstico',val:Utils.fmtInt(diag)});
-        opsItems.push({lbl:'Esperando repuestos',val:Utils.fmtInt(wait)});
-        opsItems.push({lbl:'En progreso',val:Utils.fmtInt(prog)});
-      }
+      if(durC){const vs=rows.map(r=>valNum(r[durC.key])).filter(v=>v!=null);
+        if(vs.length)opsItems.push({lbl:'Tiempo promedio reparación',val:Utils.fmtNum(vs.reduce((a,b)=>a+b,0)/vs.length)+' min',sub:'Duración media por orden'});}
+      const rwC=ws?.rework;if(rwC){const rw=rows.filter(r=>/s[ií]|yes|true|1/i.test(String(r[rwC.key]??''))).length;
+        opsItems.push({lbl:'Tasa de retrabajos',val:`${rows.length?(rw/rows.length*100).toFixed(1):0}%`,sub:`${rw} vehículos con retrabajo`});}
+      if(stC){opsItems.push({lbl:'Diagnóstico',val:Utils.fmtInt(rows.filter(r=>isDiagnosis(r[stC.key])).length)});
+        opsItems.push({lbl:'Esperando repuestos',val:Utils.fmtInt(rows.filter(r=>isWaitingParts(r[stC.key])).length)});
+        opsItems.push({lbl:'En progreso',val:Utils.fmtInt(rows.filter(r=>isInProgress(r[stC.key])).length)});}
       drawSection('Métricas operativas',opsItems);
-
       const cliItems=[];
-      if(cliC){
-        cliItems.push({lbl:'Total clientes',val:Utils.fmtInt(distinctIn(rows,cliC.key))});
-        const byClient=new Map();
-        rows.forEach(r=>{const c=r[cliC.key];if(c!=null){byClient.set(c,(byClient.get(c)||0)+1);}});
+      if(cliC){cliItems.push({lbl:'Total clientes',val:Utils.fmtInt(distinctIn(rows,cliC.key))});
+        const byClient=new Map();rows.forEach(r=>{const c=r[cliC.key];if(c!=null){byClient.set(c,(byClient.get(c)||0)+1);}});
         const recurrent=[...byClient.values()].filter(v=>v>=2).length;
-        cliItems.push({lbl:'Clientes recurrentes',val:Utils.fmtInt(recurrent),sub:`${Math.round(recurrent/Math.max(1,byClient.size)*100)}%`});
-      }
-      const ratC=ws?.rating;
-      if(ratC){
-        const vs=rows.map(r=>valNum(r[ratC.key])).filter(v=>v!=null);
-        if(vs.length)cliItems.push({lbl:'Satisfacción promedio',val:(vs.reduce((a,b)=>a+b,0)/vs.length).toFixed(2)+'/5'});
-      }
+        cliItems.push({lbl:'Clientes recurrentes',val:Utils.fmtInt(recurrent),sub:`${Math.round(recurrent/Math.max(1,byClient.size)*100)}%`});}
+      const ratC=ws?.rating;if(ratC){const vs=rows.map(r=>valNum(r[ratC.key])).filter(v=>v!=null);
+        if(vs.length)cliItems.push({lbl:'Satisfacción promedio',val:(vs.reduce((a,b)=>a+b,0)/vs.length).toFixed(2)+'/5'});}
       drawSection('Clientes',cliItems);
-
-      const invItems=[];
-      const stockC=roleCol('stock');
-      if(stockC){
-        const low=rows.filter(r=>{const v=valNum(r[stockC.key]);return v!=null&&v<=5;}).length;
-        const zero=rows.filter(r=>{const v=valNum(r[stockC.key]);return v!=null&&v===0;}).length;
-        invItems.push({lbl:'Stock crítico (≤5)',val:Utils.fmtInt(low)});
-        invItems.push({lbl:'Sin stock',val:Utils.fmtInt(zero)});
-      }
+      const invItems=[];const stockC=roleCol('stock');
+      if(stockC){invItems.push({lbl:'Stock crítico (≤5)',val:Utils.fmtInt(rows.filter(r=>{const v=valNum(r[stockC.key]);return v!=null&&v<=5;}).length)});
+        invItems.push({lbl:'Sin stock',val:Utils.fmtInt(rows.filter(r=>{const v=valNum(r[stockC.key]);return v!=null&&v===0;}).length)});}
       const spareC=ws?.spare||roleCol('product');
-      if(spareC){
-        const top=groupAgg(rows,spareC.key,null,'count',3);
-        if(top[0])invItems.push({lbl:'Top repuesto usado',val:`${top[0].label} (${Utils.fmtInt(top[0].value)})`});
-      }
+      if(spareC){const top=groupAgg(rows,spareC.key,null,'count',3);if(top[0])invItems.push({lbl:'Top repuesto usado',val:`${top[0].label} (${Utils.fmtInt(top[0].value)})`});}
       drawSection('Inventario',invItems);
-
-      addPage();
-      pdf.setFillColor(255,255,255);
-      pdf.rect(0,0,pageW,pageH,'F');
-      pdf.setFillColor(pr,pg,pb);
-      pdf.rect(0,0,pageW,14,'F');
-      pdf.setTextColor(255,255,255);
-      pdf.setFontSize(11);
-      pdf.text('💰 FINANZAS Y VENTAS',margin,9);
-      y=22;
-
+      addPage();pdf.setFillColor(255,255,255);pdf.rect(0,0,pageW,pageH,'F');pdf.setFillColor(pr,pg,pb);pdf.rect(0,0,pageW,14,'F');
+      pdf.setTextColor(255,255,255);pdf.setFontSize(11);pdf.text('💰 FINANZAS Y VENTAS',margin,9);y=22;
       const finItems=[];
-      if(saleC){
-        const total=sumIn(rows,saleC.key);
-        finItems.push({lbl:'Facturación total',val:Utils.fmtCur(total,saleC.sym)});
-        const comp=stC?rows.filter(r=>isCompleted(r[stC.key])):rows;
-        const ticket=comp.length?sumIn(comp,saleC.key)/comp.length:0;
+      if(saleC){finItems.push({lbl:'Facturación total',val:Utils.fmtCur(sumIn(rows,saleC.key),saleC.sym)});
+        const comp=stC?rows.filter(r=>isCompleted(r[stC.key])):rows;const ticket=comp.length?sumIn(comp,saleC.key)/comp.length:0;
         finItems.push({lbl:'Ticket promedio',val:Utils.fmtCur(ticket,saleC.sym),sub:`${Utils.fmtInt(comp.length)} completadas`});
         const pagC=state.columns.find(c=>c.type==='text'&&/pagad|paid/i.test(c.name));
-        if(pagC){
-          const pend=rows.filter(r=>/no|pend|false/i.test(String(r[pagC.key]??''))).length;
+        if(pagC){const pend=rows.filter(r=>/no|pend|false/i.test(String(r[pagC.key]??''))).length;
           const pendVal=sumIn(rows.filter(r=>/no|pend|false/i.test(String(r[pagC.key]??''))),saleC.key);
-          finItems.push({lbl:'Cobros pendientes',val:`${Utils.fmtInt(pend)} facturas`,sub:Utils.fmtCur(pendVal,saleC.sym)});
-        }
-      }
+          finItems.push({lbl:'Cobros pendientes',val:`${Utils.fmtInt(pend)} facturas`,sub:Utils.fmtCur(pendVal,saleC.sym)});}}
       drawSection('Resumen financiero',finItems);
-
       const alerts=AlertsEngine.build(rows);
-      if(alerts.length){
-        const alertItems=alerts.slice(0,8).map(a=>({lbl:a.ic+' '+a.title,val:a.desc}));
-        drawSection('🚨 Alertas inteligentes',alertItems);
-      }
-
-      const insights=[];
-      const n=rows.length;
-      const cat=roleCol('category'),meas=pickMeasure();
+      if(alerts.length)drawSection('🚨 Alertas inteligentes',alerts.slice(0,8).map(a=>({lbl:a.ic+' '+a.title,val:a.desc})));
+      const insights=[];const n=rows.length;const cat=roleCol('category'),meas=pickMeasure();
       if(n)insights.push(`La vista actual contiene ${Utils.fmtInt(n)} registros.`);
-      if(saleC){
-        const comp=stC?rows.filter(r=>isCompleted(r[stC.key])):rows;
-        insights.push(`Facturación completada: ${Utils.fmtCur(sumIn(comp,saleC.key),saleC.sym)}.`);
-      }
-      if(cat&&meas){
-        const g=groupAgg(rows,cat.key,meas.key,'sum',1)[0];
-        if(g)insights.push(`Líder en ${meas.name}: ${g.label} con ${Utils.fmtNum(g.value)}.`);
-      }
-      if(stockC){
-        const zero=rows.filter(r=>valNum(r[stockC.key])===0).length;
-        if(zero)insights.push(`⚠ ${zero} registros sin stock requieren reposición.`);
-      }
+      if(saleC){const comp=stC?rows.filter(r=>isCompleted(r[stC.key])):rows;insights.push(`Facturación completada: ${Utils.fmtCur(sumIn(comp,saleC.key),saleC.sym)}.`);}
+      if(cat&&meas){const g=groupAgg(rows,cat.key,meas.key,'sum',1)[0];if(g)insights.push(`Líder en ${meas.name}: ${g.label} con ${Utils.fmtNum(g.value)}.`);}
+      if(stockC){const zero=rows.filter(r=>valNum(r[stockC.key])===0).length;if(zero)insights.push(`⚠ ${zero} registros sin stock requieren reposición.`);}
       drawSection('🎯 Conclusiones clave',insights.map(x=>({lbl:'•',val:x})));
-
-      pdf.setFontSize(7);
-      pdf.setTextColor(120,120,120);
+      pdf.setFontSize(7);pdf.setTextColor(120,120,120);
       const totalPages=pdf.internal.getNumberOfPages();
-      for(let i=1;i<=totalPages;i++){
-        pdf.setPage(i);
-        pdf.text(`SKILL MECANIC · Página ${i}/${totalPages} · ${new Date().toLocaleString('es')}`,pageW/2,pageH-5,{align:'center'});
-      }
-
-      const fname=`SKILL_MECANIC_Reporte_${new Date().toISOString().slice(0,10)}.pdf`;
-      pdf.save(fname);
+      for(let i=1;i<=totalPages;i++){pdf.setPage(i);pdf.text(`SKILL MECANIC · Página ${i}/${totalPages} · ${new Date().toLocaleString('es')}`,pageW/2,pageH-5,{align:'center'});}
+      const fname=`SKILL_MECANIC_Reporte_${new Date().toISOString().slice(0,10)}.pdf`;pdf.save(fname);
       Utils.toast(`✅ Reporte PDF generado: ${fname}`,'ok');
-    }catch(e){
-      console.error(e);
-      Utils.toast('❌ Error al generar PDF: '+Utils.esc(e.message),'err');
-    }finally{
-      Utils.loading(false);
-    }
+    }catch(e){console.error(e);Utils.toast('❌ Error al generar PDF: '+Utils.esc(e.message),'err');}
+    finally{Utils.loading(false);}
   }
 };
 
-/* ================= KPIEngine ================= */
 function renderKPIs(rows){
   const n=rows.length,C=[];
-  const lab=roleCol('label')||roleCol('product')||roleCol('code'),
-        cat=roleCol('category'),stock=roleCol('stock'),price=roleCol('price'),
-        date=roleCol('date'),pctCol=state.columns.find(c=>c.type==='percent'),
-        meas=pickMeasure(),statusCol=findStatusCol(state.columns),saleCol=findSaleCol(state.columns),
-        soldQty=findSoldQty(state.columns);
-  const push=(sc,l,v,s)=>C.push({sc,l,v,s});
-  const isBrand=cat?/marca|brand/i.test(cat.name):false;
+  const lab=roleCol('label')||roleCol('product')||roleCol('code'),cat=roleCol('category'),stock=roleCol('stock'),price=roleCol('price'),
+    date=roleCol('date'),pctCol=state.columns.find(c=>c.type==='percent'),meas=pickMeasure(),statusCol=findStatusCol(state.columns),
+    saleCol=findSaleCol(state.columns),soldQty=findSoldQty(state.columns);
+  const push=(sc,l,v,s)=>C.push({sc,l,v,s});const isBrand=cat?/marca|brand/i.test(cat.name):false;
   push(100,'Registros',Utils.fmtInt(n),'total de la vista');
-  if(saleCol){
-    const comp=statusCol?rows.filter(r=>isCompleted(r[statusCol.key])):rows;
-    const fact=sumIn(comp,saleCol.key);
-    if(fact>0){
-      push(99,'Facturación total',Utils.fmtCur(fact,saleCol.sym),statusCol?'Σ '+saleCol.name+' · "Completado"':'Σ '+saleCol.name);
+  if(saleCol){const comp=statusCol?rows.filter(r=>isCompleted(r[statusCol.key])):rows;const fact=sumIn(comp,saleCol.key);
+    if(fact>0){push(99,'Facturación total',Utils.fmtCur(fact,saleCol.sym),statusCol?'Σ '+saleCol.name+' · "Completado"':'Σ '+saleCol.name);
       push(98,'Ticket promedio',Utils.fmtCur(fact/Math.max(1,comp.length),saleCol.sym),Utils.fmtInt(comp.length)+' pedidos completados');
-      if(date){
-        const per=g=>{const s=new Set();comp.forEach(r=>{const d=r[date.key];if(d)s.add(TimeEngine.bucket(d,g));});return s.size;};
+      if(date){const per=g=>{const s=new Set();comp.forEach(r=>{const d=r[date.key];if(d instanceof Date&&!isNaN(d.getTime()))s.add(TimeEngine.bucket(d,g));});return s.size;};
         const nd=per('day'),nw=per('week'),nm=per('month'),ny=per('year');
         if(nd)push(93,'Venta diaria prom.',Utils.fmtCur(fact/nd,saleCol.sym),'facturación / día activo');
         if(nw)push(91,'Venta semanal prom.',Utils.fmtCur(fact/nw,saleCol.sym),'facturación / semana');
         if(nm)push(89,'Venta mensual prom.',Utils.fmtCur(fact/nm,saleCol.sym),'facturación / mes');
-        if(ny)push(85,'Venta anual prom.',Utils.fmtCur(fact/ny,saleCol.sym),'facturación / año');
-      }
-    }
-  }
-  if(statusCol){
-    const withS=rows.filter(r=>r[statusCol.key]!=null&&r[statusCol.key]!=='').length;
-    const canc=rows.filter(r=>isCancelled(r[statusCol.key])).length;
-    const dev=rows.filter(r=>isReturned(r[statusCol.key])).length;
-    if(withS>0&&(canc>0||dev>0))push(96,'Tasa cancel./devol.',Utils.fmtNum((canc+dev)/withS*100)+'%',canc+' canc · '+dev+' dev de '+Utils.fmtInt(withS));
-  }
-  if(lab&&(soldQty||saleCol)){
-    const g=groupAgg(rows,lab.key,(soldQty||saleCol).key,'sum',1)[0];
-    if(g)push(94,'Producto más vendido',Utils.esc(Utils.trunc(g.label,20)),Utils.fmtNum(g.value)+(soldQty?' uds':' en ventas'));
-  }
+        if(ny)push(85,'Venta anual prom.',Utils.fmtCur(fact/ny,saleCol.sym),'facturación / año');}}}
+  if(statusCol){const withS=rows.filter(r=>r[statusCol.key]!=null&&r[statusCol.key]!=='').length;
+    const canc=rows.filter(r=>isCancelled(r[statusCol.key])).length;const dev=rows.filter(r=>isReturned(r[statusCol.key])).length;
+    if(withS>0&&(canc>0||dev>0))push(96,'Tasa cancel./devol.',Utils.fmtNum((canc+dev)/withS*100)+'%',canc+' canc · '+dev+' dev de '+Utils.fmtInt(withS));}
+  if(lab&&(soldQty||saleCol)){const g=groupAgg(rows,lab.key,(soldQty||saleCol).key,'sum',1)[0];
+    if(g)push(94,'Producto más vendido',Utils.esc(Utils.trunc(g.label,20)),Utils.fmtNum(g.value)+(soldQty?' uds':' en ventas'));}
   if(price&&stock){let val=0;rows.forEach(r=>{const p=valNum(r[price.key]),q=valNum(r[stock.key]);if(p!=null&&q!=null)val+=p*q;});
     if(val>0)push(97,'Valor de inventario',Utils.fmtCur(val,price.sym),'Σ '+price.name+' × '+stock.name);}
   if(stock&&stock.stats.count)push(95,'Stock total',Utils.fmtNum(sumIn(rows,stock.key)),'subtotal unidades');
@@ -1996,44 +1431,47 @@ function renderKPIs(rows){
     if(g&&g.value>0)push(92,'Subtotal top · '+Utils.trunc(dimSub.name,13),Utils.fmtNum(g.value),Utils.trunc(g.label,18)+' · '+Math.round(g.value/tot*100)+'% del total');}
   if(price){const vs=rows.map(r=>valNum(r[price.key])).filter(v=>v!=null);
     if(vs.length)push(90,'Precio promedio',Utils.fmtCur(vs.reduce((a,b)=>a+b,0)/vs.length,price.sym),Utils.trunc(price.name,20));}
-  if(lab&&price){const g=groupAvg(rows,lab.key,price.key);
-    if(g)push(88,'Precio por producto',Utils.fmtCur(g.avg,price.sym),'top: '+Utils.trunc(g.label,20));}
-  if(stock){const zero=rows.filter(r=>valNum(r[stock.key])===0).length;
-    push(87,'Sin stock',Utils.fmtInt(zero),'alerta de reposición');}
-  if(cat&&price){const g=groupAvg(rows,cat.key,price.key);
-    if(g)push(86,isBrand?'Precio por marca':'Precio por categoría',Utils.fmtCur(g.avg,price.sym),'top: '+Utils.trunc(g.label,20));}
+  if(lab&&price){const g=groupAvg(rows,lab.key,price.key);if(g)push(88,'Precio por producto',Utils.fmtCur(g.avg,price.sym),'top: '+Utils.trunc(g.label,20));}
+  if(stock){const zero=rows.filter(r=>valNum(r[stock.key])===0).length;push(87,'Sin stock',Utils.fmtInt(zero),'alerta de reposición');}
+  if(cat&&price){const g=groupAvg(rows,cat.key,price.key);if(g)push(86,isBrand?'Precio por marca':'Precio por categoría',Utils.fmtCur(g.avg,price.sym),'top: '+Utils.trunc(g.label,20));}
   if(price&&lab){let mx=-Infinity,mxL='—',mn=Infinity,mnL='—';
     rows.forEach(r=>{const v=valNum(r[price.key]);if(v==null)return;if(v>mx){mx=v;mxL=r[lab.key]||'—';}if(v<mn){mn=v;mnL=r[lab.key]||'—';}});
-    if(mx>-Infinity)push(84,'Precio máximo',Utils.fmtCur(mx,price.sym),Utils.trunc(mxL,20));
-    if(mn<Infinity)push(82,'Precio mínimo',Utils.fmtCur(mn,price.sym),Utils.trunc(mnL,20));}
+    if(mx>-Infinity)push(84,'Precio máximo',Utils.fmtCur(mx,price.sym),Utils.trunc(mxL,20));if(mn<Infinity)push(82,'Precio mínimo',Utils.fmtCur(mn,price.sym),Utils.trunc(mnL,20));}
   if(lab)push(80,Utils.trunc(lab.name,15)+' únicos',Utils.fmtInt(distinctIn(rows,lab.key)),'elementos distintos');
   if(cat)push(78,isBrand?'Marcas':'Categorías',Utils.fmtInt(distinctIn(rows,cat.key)),'subtotales calculados');
   if(pctCol&&pctCol.stats.count)push(76,Utils.trunc(pctCol.name,13)+' prom.',Utils.fmtNum(pctCol.stats.mean)+'%','rango '+Utils.fmtNum(pctCol.stats.min)+'–'+Utils.fmtNum(pctCol.stats.max));
-  if(date&&date.stats.min)push(70,'Período',Utils.fmtDate(date.stats.min)+' → '+Utils.fmtDate(date.stats.max),'rango temporal');
+  if(date&&date.stats.min&&date.stats.max)push(70,'Período',Utils.fmtDate(date.stats.min)+' → '+Utils.fmtDate(date.stats.max),'rango temporal');
   C.sort((a,b)=>b.sc-a.sc);
-  $('#kpiGrid').innerHTML=C.slice(0,12).map((c,idx)=>`
-    <div class="card kpi" style="animation-delay:${idx*55}ms">
-      <span class="lbl">${Utils.esc(c.l)}</span>
-      <span class="val" style="${String(c.v).length>14?'font-size:.95rem':''}">${Utils.esc(c.v)}</span>
-      <span class="sub">${Utils.esc(c.s||'')}</span></div>`).join('');
+  $('#kpiGrid').innerHTML=C.slice(0,12).map((c,idx)=>`<div class="card kpi" style="animation-delay:${idx*55}ms"><span class="lbl">${Utils.esc(c.l)}</span><span class="val" style="${String(c.v).length>14?'font-size:.95rem':''}">${Utils.esc(c.v)}</span><span class="sub">${Utils.esc(c.s||'')}</span></div>`).join('');
 }
 
-/* ================= ChartEngine ================= */
 function chartDefaults(){
   Chart.defaults.color='#8fa0af';Chart.defaults.borderColor='rgba(143,160,175,.12)';
   Chart.defaults.font.family="'Rajdhani','Segoe UI',sans-serif";Chart.defaults.font.size=12;
   Chart.defaults.plugins.tooltip.backgroundColor='rgba(8,11,15,.94)';
   const primary=(getComputedStyle(document.documentElement).getPropertyValue('--primary')||'#e10600').trim();
-  Chart.defaults.plugins.tooltip.borderColor=Utils.hexRgba(primary,.6);Chart.defaults.plugins.tooltip.borderWidth=1;
-  return primary;
+  Chart.defaults.plugins.tooltip.borderColor=Utils.hexRgba(primary,.6);Chart.defaults.plugins.tooltip.borderWidth=1;return primary;
 }
+/* ============================================================
+   🛠️ NUEVO: 6 gráficos específicos para taller
+   Aparecen automáticamente cuando hay datos de taller
+   ============================================================ */
 function buildChartDefs(){
   const cols=state.columns,defs=[];
   const cat=roleCol('category')||cols.filter(c=>c.type==='text'&&c.cardinal>=2&&c.cardinal<=60).sort((a,b)=>a.cardinal-b.cardinal)[0]||null;
   const lab=roleCol('label')||roleCol('product')||cols.filter(c=>c.type==='text'&&c!==cat).sort((a,b)=>b.cardinal-a.cardinal)[0]||null;
-  const meas=pickMeasure(),date=roleCol('date'),
-        soldQty=findSoldQty(cols),saleCol=findSaleCol(cols),
-        stKey=findStatusCol(cols)?.key||null;
+  const meas=pickMeasure(),date=roleCol('date'),soldQty=findSoldQty(cols),saleCol=findSaleCol(cols),stKey=findStatusCol(cols)?.key||null;
+  // ====== GRÁFICOS DEL TALLER (solo si workshopMode) ======
+  if(state.workshopMode){
+    const ws=cols._ws||{};
+    if(ws.service)defs.push({id:'wsSvc',w:'w7',title:'🔧 Servicios más solicitados',dim:ws.service.key,fk:ws.service.key,meas:null,mode:'count',top:12,types:['bar'],hz:true,wsChart:true});
+    if(ws.mechanic)defs.push({id:'wsMec',w:'w5',title:'👨‍🔧 Servicios por mecánico',dim:ws.mechanic.key,fk:ws.mechanic.key,meas:null,mode:'count',top:10,types:['bar'],hz:true,wsChart:true});
+    if(ws.status)defs.push({id:'wsStatus',w:'w5',title:'📊 Distribución por estado',dim:ws.status.key,fk:ws.status.key,meas:null,mode:'count',top:8,types:['doughnut','bar'],wsChart:true});
+    if(ws.channel&&saleCol)defs.push({id:'wsChan',w:'w5',title:'📡 Ingresos por canal',dim:ws.channel.key,fk:ws.channel.key,meas:saleCol.key,mode:'sum',top:6,types:['bar','doughnut'],wsChart:true});
+    if(ws.spare)defs.push({id:'wsSpare',w:'w7',title:'📦 Top repuestos usados',dim:ws.spare.key,fk:ws.spare.key,meas:null,mode:'count',top:10,types:['bar'],hz:true,wsChart:true});
+    if(ws.service&&ws.rating)defs.push({id:'wsSat',w:'w7',title:'⭐ Satisfacción promedio por servicio',dim:ws.service.key,fk:ws.service.key,meas:ws.rating.key,mode:'avg',top:12,types:['bar'],hz:true,wsChart:true});
+  }
+  // ====== GRÁFICOS ORIGINALES ======
   if(cat)defs.push({id:'cA',w:'w7',title:`${meas?'Σ '+meas.name:'Registros'} por ${cat.name}`,dim:cat.key,fk:cat.key,meas:meas?.key,mode:meas?'sum':'count',top:12,types:['bar','line','area','doughnut']});
   if(cat)defs.push({id:'cB',w:'w5',title:`Distribución · ${cat.name}`,dim:cat.key,fk:cat.key,meas:meas?.key,mode:meas?'sum':'count',top:8,types:['doughnut','bar']});
   if(date)defs.push({id:'cC',w:'w7',title:`Evolución temporal${meas?' · '+meas.name:''}`,dateKey:date.key,fk:date.key+'__bk',meas:meas?.key,mode:meas?'sum':'count',types:['line','area','bar']});
@@ -2050,7 +1488,7 @@ function chartData(def,rows){
     vs.forEach(v=>{bins[Math.min(k-1,Math.floor((v-mn)/w))].v++;});
     return{labels:bins.map(b=>Utils.fmtNum(b.lo)+'–'+Utils.fmtNum(b.hi)),values:bins.map(b=>b.v),bins};}
   if(def.dateKey){const g=dateGran(rows,def.dateKey);const m=new Map();
-    for(const r of rows){const d=r[def.dateKey];if(!d)continue;const b=bucketOf(d,g);const e=m.get(b)||{v:0,c:0};e.c++;
+    for(const r of rows){const d=r[def.dateKey];if(!(d instanceof Date)||isNaN(d.getTime()))continue;const b=bucketOf(d,g);const e=m.get(b)||{v:0,c:0};e.c++;
       if(def.mode==='sum'){const v=valNum(r[def.meas]);if(v)e.v+=v;}m.set(b,e);}
     const keys=[...m.keys()].sort();
     return{labels:keys.map(k=>bucketLabel(k,g)),values:keys.map(k=>def.mode==='sum'?m.get(k).v:m.get(k).c),gran:g,keys};}
@@ -2061,8 +1499,7 @@ function renderCharts(){
   const grid=$('#chartsGrid');grid.innerHTML='';
   Object.values(state.charts).forEach(c=>c.destroy());state.charts={};
   if(!window.Chart){grid.innerHTML='<div class="card ch-card" style="grid-column:span 12"><div class="card-h"><h3>⚠️ Chart.js no cargó</h3></div></div>';return;}
-  const primary=chartDefaults();
-  const defs=buildChartDefs();
+  const primary=chartDefaults();const defs=buildChartDefs();
   if(!defs.length){grid.innerHTML='<div class="card ch-card" style="grid-column:span 12"><div class="card-h"><h3>Sin datos suficientes para graficar</h3></div></div>';return;}
   defs.forEach((def,idx)=>{
     const card=document.createElement('div');card.className=`card ch-card ${def.w||''}`;card.style.animationDelay=(idx*70)+'ms';
@@ -2070,10 +1507,8 @@ function renderCharts(){
     card.innerHTML=`<div class="card-h"><h3>${Utils.esc(def.title)}</h3><span class="spacer"></span>${typeSel}</div><div class="ch-body"><canvas id="cv_${def.id}"></canvas></div>`;
     grid.appendChild(card);
     card.querySelector('.chtype')?.addEventListener('change',e=>{state.chartTypes[def.id]=e.target.value;renderCharts();});
-    let rows=getFiltered(def.fk);
-    if(def.comp)rows=rows.filter(r=>isCompleted(r[def.comp]));
-    const D=chartData(def,rows);
-    const actF=state.filters[def.fk];let bg,brd;
+    let rows=getFiltered(def.fk);if(def.comp)rows=rows.filter(r=>isCompleted(r[def.comp]));
+    const D=chartData(def,rows);const actF=state.filters[def.fk];let bg,brd;
     if(def.type==='doughnut'){bg=Utils.palette(D.labels.length).map(c=>Utils.hexRgba(c,.85));brd='#0b0e12';}
     else{bg=D.labels.map((l,i)=>actF&&actF.kind==='set'?(actF.values.has(String(D.raw?.[i]?.label??l))?Utils.hexRgba(primary,.95):Utils.hexRgba(primary,.22)):Utils.hexRgba(primary,.75));brd=primary;}
     const isLine=['line','area'].includes(def.type);
@@ -2083,7 +1518,7 @@ function renderCharts(){
         borderColor:brd,borderWidth:isLine?2:1,borderRadius:def.type==='bar'?6:0,fill:def.type==='area',tension:.35,pointRadius:isLine?3:0,pointBackgroundColor:primary}]},
       options:{maintainAspectRatio:false,responsive:true,indexAxis:def.hz?'y':'x',
         plugins:{legend:{display:def.type==='doughnut',position:'right',labels:{boxWidth:10,font:{size:11}}},
-          tooltip:{callbacks:{label:c=>' '+Utils.fmtNum(c.parsed?.y??c.parsed?.x??c.parsed)}}},
+          tooltip:{callbacks:{label:c=>' '+Utils.fmtNum(c.parsed?.y??c.parsed?.x??c.parsed)+(def.mode==='avg'?'/5':'')}}},
         scales:(def.type!=='doughnut')?{x:{grid:{display:!!def.hz}},y:{grid:{color:'rgba(143,160,175,.08)'}}}:undefined,
         onClick:(e,els)=>{if(!els.length)return;chartClick(def,D,els[0].index);}}};
     if(def.type==='doughnut')cfg.options.cutout='62%';
@@ -2095,58 +1530,46 @@ function chartClick(def,D,i){
     else state.filters[k]={kind:'bin',lo:b.lo,hi:b.hi,label:`${colByKey(def.hist).name}: ${Utils.fmtNum(b.lo)}–${Utils.fmtNum(b.hi)}`,fn:r=>{const v=valNum(r[def.hist]);return v!=null&&v>=b.lo&&v<=b.hi;}};}
   else if(def.dateKey){const bk=D.keys[i],g=D.gran,k=def.fk;
     if(state.filters[k]&&state.filters[k].kind==='bk'&&state.filters[k].bk===bk)delete state.filters[k];
-    else state.filters[k]={kind:'bk',bk,label:bucketLabel(bk,g),fn:r=>{const d=r[def.dateKey];return d&&bucketOf(d,g)===bk;}};}
+    else state.filters[k]={kind:'bk',bk,label:bucketLabel(bk,g),fn:r=>{const d=r[def.dateKey];return d instanceof Date&&bucketOf(d,g)===bk;}};}
   else{const val=D.raw[i].label,k=def.fk;
     if(state.filters[k]&&state.filters[k].kind==='set'&&state.filters[k].values.size===1&&state.filters[k].values.has(val))delete state.filters[k];
     else state.filters[k]={kind:'set',values:new Set([val]),label:`${Utils.trunc(colByKey(def.dim)?.name||def.dim,14)}: ${Utils.trunc(val,20)}`,fn:r=>String(r[def.dim]??'')===val};}
-  state.page=1;$('#tableCard').classList.remove('flash');void $('#tableCard').offsetWidth;$('#tableCard').classList.add('flash');
-  refresh();
+  state.page=1;$('#tableCard').classList.remove('flash');void $('#tableCard').offsetWidth;$('#tableCard').classList.add('flash');refresh();
 }
 
-/* ================= TimeEngine ================= */
 const TimeEngine={gran:'month',period:null,charts:{},
-  bucket(d,g){
+  bucket(d,g){if(!(d instanceof Date)||isNaN(d.getTime()))return '';
     if(g==='day')return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
     if(g==='week')return d.getFullYear()+'-W'+String(isoWeek(d)).padStart(2,'0');
-    if(g==='month')return bucketOf(d,'month');
-    return String(d.getFullYear());},
-  label(b,g){
-    if(g==='day'){const[y,m,d]=b.split('-');return d+' '+MESES[+m-1]+' '+y.slice(2);}
+    if(g==='month')return bucketOf(d,'month');return String(d.getFullYear());},
+  label(b,g){if(g==='day'){const[y,m,d]=b.split('-');return d+' '+MESES[+m-1]+' '+y.slice(2);}
     if(g==='week'){const[y,w]=b.split('-W');return 'Sem '+(+w)+' · '+y;}
     if(g==='month')return bucketLabel(b,'month');return b;},
   render(){
     const sec=$('#timeSection');const date=roleCol('date');
-    Object.values(this.charts).forEach(c=>c.destroy());this.charts={};
-    if(!date){sec.hidden=true;return;}
-    const saleCol=findSaleCol(state.columns),meas=saleCol||pickMeasure(),
-          soldQty=findSoldQty(state.columns),stKey=findStatusCol(state.columns)?.key,
-          lab=roleCol('label')||roleCol('product'),cat=roleCol('category');
+    Object.values(this.charts).forEach(c=>c.destroy());this.charts={};if(!date){sec.hidden=true;return;}
+    const saleCol=findSaleCol(state.columns),meas=saleCol||pickMeasure(),soldQty=findSoldQty(state.columns),stKey=findStatusCol(state.columns)?.key,
+      lab=roleCol('label')||roleCol('product'),cat=roleCol('category');
     let rows=getFiltered();if(stKey)rows=rows.filter(r=>isCompleted(r[stKey]));
     const m=new Map();
-    for(const r of rows){const d=r[date.key];if(!d)continue;const b=this.bucket(d,this.gran);
+    for(const r of rows){const d=r[date.key];if(!(d instanceof Date)||isNaN(d.getTime()))continue;const b=this.bucket(d,this.gran);
       const e=m.get(b)||{v:0,c:0};e.c++;e.v+=meas?(valNum(r[meas.key])||0):1;m.set(b,e);}
-    const keys=[...m.keys()].sort();
-    if(!keys.length){sec.hidden=true;return;}
-    sec.hidden=false;
+    const keys=[...m.keys()].sort();if(!keys.length){sec.hidden=true;return;}sec.hidden=false;
     if(!this.period||!m.has(this.period))this.period=keys[keys.length-1];
     $('#periodSel').innerHTML=keys.slice().reverse().map(k=>`<option value="${k}" ${k===this.period?'selected':''}>${this.label(k,this.gran)}</option>`).join('');
-    const pr=rows.filter(r=>{const d=r[date.key];return d&&this.bucket(d,this.gran)===this.period;});
+    const pr=rows.filter(r=>{const d=r[date.key];return d instanceof Date&&this.bucket(d,this.gran)===this.period;});
     const totV=sumIn(pr,meas?.key),totQ=soldQty?sumIn(pr,soldQty.key):pr.length;
-    let topP='—',topPv=0;
-    if(lab){const g=groupAgg(pr,lab.key,(soldQty||meas)?.key,soldQty||meas?'sum':'count',1)[0];if(g){topP=g.label;topPv=g.value;}}
-    let topC='—',topCv=0;
-    if(cat){const g=groupAgg(pr,cat.key,(soldQty||meas)?.key,soldQty||meas?'sum':'count',1)[0];if(g){topC=g.label;topCv=g.value;}}
+    let topP='—',topPv=0;if(lab){const g=groupAgg(pr,lab.key,(soldQty||meas)?.key,soldQty||meas?'sum':'count',1)[0];if(g){topP=g.label;topPv=g.value;}}
+    let topC='—',topCv=0;if(cat){const g=groupAgg(pr,cat.key,(soldQty||meas)?.key,soldQty||meas?'sum':'count',1)[0];if(g){topC=g.label;topCv=g.value;}}
     $('#periodKpis').innerHTML=`
-      <div class="cmp-kpi"><span class="lbl">Ventas del período</span><span class="ab">${saleCol?Utils.fmtCur(totV,saleCol.sym):Utils.fmtNum(totV)}</span><span class="delta flat">${this.label(this.period,this.gran)}</span></div>
+      <div class="cmp-kpi"><span class="lbl">Ventas del período</span><span class="ab">${saleCol?Utils.fmtCur(totV,saleC.sym):Utils.fmtNum(totV)}</span><span class="delta flat">${this.label(this.period,this.gran)}</span></div>
       <div class="cmp-kpi"><span class="lbl">Pedidos</span><span class="ab">${Utils.fmtInt(pr.length)}</span><span class="delta flat">${Utils.fmtNum(totQ)} uds</span></div>
       <div class="cmp-kpi"><span class="lbl">Top producto del período</span><span class="ab">${Utils.esc(Utils.trunc(topP,24))}</span><span class="delta up">${Utils.fmtNum(topPv)}${soldQty?' uds':''}</span></div>
       <div class="cmp-kpi"><span class="lbl">Top categoría</span><span class="ab">${Utils.esc(Utils.trunc(topC,24))}</span><span class="delta up">${Utils.fmtNum(topCv)}</span></div>`;
-    if(window.Chart){
-      const pri=chartDefaults();
+    if(window.Chart){const pri=chartDefaults();
       this.charts.series=new Chart($('#cvTimeSeries'),{type:'bar',
         data:{labels:keys.map(k=>this.label(k,this.gran)),datasets:[{label:saleCol?'Ventas':'Σ',
-          data:keys.map(k=>+(m.get(k).v).toFixed(2)),
-          backgroundColor:keys.map(k=>k===this.period?Utils.hexRgba(pri,.95):Utils.hexRgba(pri,.4)),borderRadius:5}]},
+          data:keys.map(k=>+(m.get(k).v).toFixed(2)),backgroundColor:keys.map(k=>k===this.period?Utils.hexRgba(pri,.95):Utils.hexRgba(pri,.4)),borderRadius:5}]},
         options:{maintainAspectRatio:false,responsive:true,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+Utils.fmtNum(c.parsed.y)}}},
           scales:{y:{grid:{color:'rgba(143,160,175,.08)'}}},
           onClick:(e,els)=>{if(!els.length)return;this.period=keys[els[0].index];this.render();}}});
@@ -2154,63 +1577,46 @@ const TimeEngine={gran:'month',period:null,charts:{},
         this.charts.top=new Chart($('#cvTopPeriod'),{type:'bar',
           data:{labels:g.map(x=>Utils.trunc(x.label,16)),datasets:[{label:'Top 5',data:g.map(x=>+x.value.toFixed(2)),backgroundColor:Utils.hexRgba(pri,.75),borderRadius:5}]},
           options:{indexAxis:'y',maintainAspectRatio:false,responsive:true,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+Utils.fmtNum(c.parsed.x)}}},
-            scales:{x:{grid:{color:'rgba(143,160,175,.08)'}}}}});}
-    }
+            scales:{x:{grid:{color:'rgba(143,160,175,.08)'}}}}});}}
   }};
 
-/* ================= GeoEngine ================= */
 function destroyMap(){if(state.leafletMap){state.leafletMap.remove();state.leafletMap=null;}}
 function buildGeoPoints(rows){
   const cols=state.columns,meas=pickMeasure();
   const latC=cols.find(c=>c.type==='number'&&/^lat(itud)?$/i.test(c.name.trim()));
   const lngC=cols.find(c=>c.type==='number'&&/^(lon(gitud)?|lng)$/i.test(c.name.trim()));
-  if(latC&&lngC){
-    return rows.map(r=>{const la=valNum(r[latC.key]),lo=valNum(r[lngC.key]);
-      if(la==null||lo==null||Math.abs(la)>90||Math.abs(lo)>180)return null;
-      const lb=roleCol('label')||roleCol('product');
-      return{lat:la,lng:lo,label:lb?(r[lb.key]??''):'',w:meas?(valNum(r[meas.key])||1):1,cnt:1};}).filter(Boolean);}
+  if(latC&&lngC){return rows.map(r=>{const la=valNum(r[latC.key]),lo=valNum(r[lngC.key]);
+    if(la==null||lo==null||Math.abs(la)>90||Math.abs(lo)>180)return null;const lb=roleCol('label')||roleCol('product');
+    return{lat:la,lng:lo,label:lb?(r[lb.key]??''):'',w:meas?(valNum(r[meas.key])||1):1,cnt:1};}).filter(Boolean);}
   const statusC=findStatusCol(cols);
   const geoC=cols.find(c=>c.type==='text'&&c!==statusC&&/ciudad|city|pa[ií]s|country|regi[oó]n|zona|sucursal|provincia|ubicaci|location|direcci/i.test(c.name));
-  if(!geoC)return[];
-  const agg=new Map();
-  for(const r of rows){const k=r[geoC.key];if(!k)continue;
-    const nk=Utils.norm(k);const co=GEO[nk]||GEO[nk.split(' ')[0]];if(!co)continue;
-    const e=agg.get(k)||{lat:co[0],lng:co[1],w:0,cnt:0,label:k};
-    e.w+=meas?(valNum(r[meas.key])||1):1;e.cnt++;agg.set(k,e);}
+  if(!geoC)return[];const agg=new Map();
+  for(const r of rows){const k=r[geoC.key];if(!k)continue;const nk=Utils.norm(k);const co=GEO[nk]||GEO[nk.split(' ')[0]];if(!co)continue;
+    const e=agg.get(k)||{lat:co[0],lng:co[1],w:0,cnt:0,label:k};e.w+=meas?(valNum(r[meas.key])||1):1;e.cnt++;agg.set(k,e);}
   return [...agg.values()];
 }
 function renderMap(pts){
-  if(!window.L){$('#mapDiv').innerHTML='<div class="note" style="padding:20px">Leaflet no cargó.</div>';return;}
-  destroyMap();
+  if(!window.L){$('#mapDiv').innerHTML='<div class="note" style="padding:20px">Leaflet no cargó.</div>';return;}destroyMap();
   const primary=(getComputedStyle(document.documentElement).getPropertyValue('--primary')||'#e10600').trim();
-  const map=L.map('mapDiv',{scrollWheelZoom:false});state.leafletMap=map;
-  map.setView([-34.6037,-64.1888],4);
+  const map=L.map('mapDiv',{scrollWheelZoom:false});state.leafletMap=map;map.setView([-34.6037,-64.1888],4);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors',maxZoom:19}).addTo(map);
   L.polygon([ARG_MAIN,ARG_TDF],{color:primary,weight:1.5,dashArray:'5 4',fillColor:primary,fillOpacity:.06,interactive:false}).addTo(map);
   const maxW=Math.max(...pts.map(p=>p.w))||1;
   if(L.heatLayer&&pts.length>=3)L.heatLayer(pts.map(p=>[p.lat,p.lng,.2+.8*(p.w/maxW)]),{radius:28,blur:18,maxZoom:10,gradient:{0.2:'#1d4ed8',0.5:'#f59e0b',0.8:primary}}).addTo(map);
-  pts.forEach(p=>{
-    const mk=L.circleMarker([p.lat,p.lng],{radius:6+9*Math.sqrt(p.w/maxW),color:primary,weight:2,fillColor:primary,fillOpacity:.5})
-      .addTo(map)
-      .bindPopup(`<b>${Utils.esc(p.label)}</b><br>${Utils.fmtNum(p.w)}${p.cnt?` · ${p.cnt} reg`:''}`);
+  pts.forEach(p=>{const mk=L.circleMarker([p.lat,p.lng],{radius:6+9*Math.sqrt(p.w/maxW),color:primary,weight:2,fillColor:primary,fillOpacity:.5})
+    .addTo(map).bindPopup(`<b>${Utils.esc(p.label)}</b><br>${Utils.fmtNum(p.w)}${p.cnt?` · ${p.cnt} reg`:''}`);
     mk.bindTooltip(Utils.esc(p.label),{permanent:pts.length<=10,direction:'top',className:'arg-tip',offset:[0,-6]});});
   if(pts.length)map.fitBounds(L.latLngBounds(pts.map(p=>[p.lat,p.lng])),{padding:[28,28],maxZoom:11});
-  setTimeout(()=>map.invalidateSize(),120);
-  $('#mapInfo').textContent=pts.length+' ciudades marcadas';
+  setTimeout(()=>map.invalidateSize(),120);$('#mapInfo').textContent=pts.length+' ciudades marcadas';
 }
 function buildHeat(rows){
-  const date=roleCol('date');if(!date)return null;
-  const cat=roleCol('category'),meas=pickMeasure();
-  const dowL=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
-  const m=new Map();const colSet=new Set();
-  for(const r of rows){const d=r[date.key];if(!d)continue;const b=bucketOf(d,'month');colSet.add(b);
-    let rk,rl;
-    if(cat){rk=r[cat.key];if(rk==null||rk==='')continue;rl=String(rk);}
-    else{rk=d.getDay();rl=dowL[rk];}
+  const date=roleCol('date');if(!date)return null;const cat=roleCol('category'),meas=pickMeasure();
+  const dowL=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];const m=new Map();const colSet=new Set();
+  for(const r of rows){const d=r[date.key];if(!(d instanceof Date)||isNaN(d.getTime()))continue;const b=bucketOf(d,'month');colSet.add(b);
+    let rk,rl;if(cat){rk=r[cat.key];if(rk==null||rk==='')continue;rl=String(rk);}else{rk=d.getDay();rl=dowL[rk];}
     let e=m.get(rk);if(!e){e={label:rl,vals:new Map()};m.set(rk,e);}
     e.vals.set(b,(e.vals.get(b)||0)+(meas?(valNum(r[meas.key])||0):1));}
-  if(!m.size)return null;
-  let cols=[...colSet].sort();if(cols.length>12)cols=cols.slice(-12);
+  if(!m.size)return null;let cols=[...colSet].sort();if(cols.length>12)cols=cols.slice(-12);
   let rowEntries=[...m.values()];
   if(cat){const sv=e=>[...e.vals.values()].reduce((a,b)=>a+b,0);rowEntries.sort((a,b)=>sv(b)-sv(a));rowEntries=rowEntries.slice(0,6);}
   else rowEntries.sort((a,b)=>dowL.indexOf(a.label)-dowL.indexOf(b.label));
@@ -2221,8 +1627,7 @@ function renderHeat(h){
   const primary=(getComputedStyle(document.documentElement).getPropertyValue('--primary')||'#e10600').trim();
   const g=$('#heatGrid');g.style.gridTemplateColumns=`minmax(70px,auto) repeat(${h.cols.length},1fr)`;
   let html='<div class="hcol"></div>'+h.cols.map(c=>`<div class="hcol">${bucketLabel(c,'month')}</div>`).join('');
-  h.rowEntries.forEach(e=>{
-    html+=`<div class="hlab" title="${Utils.esc(e.label)}">${Utils.esc(Utils.trunc(e.label,14))}</div>`;
+  h.rowEntries.forEach(e=>{html+=`<div class="hlab" title="${Utils.esc(e.label)}">${Utils.esc(Utils.trunc(e.label,14))}</div>`;
     h.cols.forEach(c=>{const v=e.vals.get(c)||0;const ratio=h.maxV?v/h.maxV:0;
       html+=`<div class="hcell" data-row="${Utils.esc(e.label)}" title="${Utils.esc(e.label)} · ${bucketLabel(c,'month')}: ${Utils.fmtNum(v)}" style="background:${v?Utils.hexRgba(primary,.08+.88*ratio):'rgba(255,255,255,.03)'}"></div>`;});});
   g.innerHTML=html;
@@ -2234,22 +1639,15 @@ function renderHeat(h){
   $('#heatInfo').textContent=`${h.rowName} × mes · ${h.mode}${h.rowKey?' · clic para filtrar':''}`;
 }
 function renderGeo(){
-  const sec=$('#geoSection');const rows=getFiltered();
-  const pts=buildGeoPoints(rows);const heat=buildHeat(rows);
-  if(!pts.length&&!heat){sec.hidden=true;destroyMap();return;}
-  sec.hidden=false;
-  $('#mapCard').style.display=pts.length?'':'none';
-  if(pts.length)renderMap(pts);else destroyMap();
-  $('#heatCard').style.display=heat?'':'none';
-  if(heat)renderHeat(heat);
+  const sec=$('#geoSection');const rows=getFiltered();const pts=buildGeoPoints(rows);const heat=buildHeat(rows);
+  if(!pts.length&&!heat){sec.hidden=true;destroyMap();return;}sec.hidden=false;
+  $('#mapCard').style.display=pts.length?'':'none';if(pts.length)renderMap(pts);else destroyMap();
+  $('#heatCard').style.display=heat?'':'none';if(heat)renderHeat(heat);
 }
 
-/* ================= CompareEngine ================= */
 function renderCompare(){
-  const sec=$('#compareSection');
-  Object.values(state.cmpCharts||{}).forEach(c=>c.destroy());state.cmpCharts={};
-  if(!state.showCompare||!state.A||!state.B){sec.hidden=true;return;}
-  sec.hidden=false;
+  const sec=$('#compareSection');Object.values(state.cmpCharts||{}).forEach(c=>c.destroy());state.cmpCharts={};
+  if(!state.showCompare||!state.A||!state.B){sec.hidden=true;return;}sec.hidden=false;
   const A=state.A,B=state.B;
   $('#cmpSrc').innerHTML=`Principal: <b>${Utils.esc(Utils.trunc(A.source.label,22))}</b> · Secundario: <b>${Utils.esc(Utils.trunc(B.source.label,22))}</b>`;
   const catA=roleIn(A.columns,'category'),catB=B.columns.find(c=>c.role==='category')||(catA?B.columns.find(c=>c.name===catA.name):null)||null;
@@ -2265,38 +1663,22 @@ function renderCompare(){
   if(priceA&&priceB){const va=avgIn(A.rows,priceA.key),vb=avgIn(B.rows,priceB.key);if(va!=null&&vb!=null)addK('Precio prom.',va,vb,'cur');}
   if(labA&&labB)addK('Elementos únicos',distinctIn(A.rows,labA.key),distinctIn(B.rows,labB.key),'int');
   const fOf=k=>k.fmt==='int'?Utils.fmtInt:k.fmt==='cur'?(v=>Utils.fmtCur(v,priceA?.sym)):Utils.fmtNum;
-  $('#cmpKpis').innerHTML=K.map(k=>{
-    const cls=k.d==null?'flat':k.d>0.5?'up':k.d<-0.5?'down':'flat';
+  $('#cmpKpis').innerHTML=K.map(k=>{const cls=k.d==null?'flat':k.d>0.5?'up':k.d<-0.5?'down':'flat';
     const arrow=cls==='up'?'▲':cls==='down'?'▼':'•';
-    return `<div class="cmp-kpi"><span class="lbl">${Utils.esc(k.l)}</span>
-      <span class="ab"><b>A</b> ${fOf(k)(k.a)} · <span class="bb"><b>B</b> ${fOf(k)(k.b)}</span></span>
-      <span class="delta ${cls}">${arrow} ${k.d==null?'—':(k.d>0?'+':'')+Math.round(k.d)+'%'}</span></div>`;}).join('')
+    return `<div class="cmp-kpi"><span class="lbl">${Utils.esc(k.l)}</span><span class="ab"><b>A</b> ${fOf(k)(k.a)} · <span class="bb"><b>B</b> ${fOf(k)(k.b)}</span></span><span class="delta ${cls}">${arrow} ${k.d==null?'—':(k.d>0?'+':'')+Math.round(k.d)+'%'}</span></div>`;}).join('')
     ||'<div class="note">Sin columnas comparables.</div>';
-  if(!window.Chart)return;
-  const pri=chartDefaults();
-  const acc=(getComputedStyle(document.documentElement).getPropertyValue('--accent')||'#9aa7b4').trim();
-  if(catA&&catB){
-    const mode=measA&&measB?'sum':'count';
-    const gA=groupAgg(A.rows,catA.key,measA?.key,mode,6);
+  if(!window.Chart)return;const pri=chartDefaults();const acc=(getComputedStyle(document.documentElement).getPropertyValue('--accent')||'#9aa7b4').trim();
+  if(catA&&catB){const mode=measA&&measB?'sum':'count';const gA=groupAgg(A.rows,catA.key,measA?.key,mode,6);
     const mB=new Map(groupAgg(B.rows,catB.key,measB?.key,mode,9999).map(g=>[g.label,g.value]));
     state.cmpCharts.cat=new Chart($('#cvCmpCat'),{type:'bar',
-      data:{labels:gA.map(g=>Utils.trunc(g.label,14)),datasets:[
-        {label:'Principal',data:gA.map(g=>+g.value.toFixed(2)),backgroundColor:Utils.hexRgba(pri,.8),borderRadius:5},
-        {label:'Secundario',data:gA.map(g=>+(mB.get(g.label)||0).toFixed(2)),backgroundColor:Utils.hexRgba(acc,.55),borderRadius:5}]},
-      options:{maintainAspectRatio:false,responsive:true,plugins:{legend:{labels:{boxWidth:10}},tooltip:{callbacks:{label:c=>' '+c.dataset.label+': '+Utils.fmtNum(c.parsed.y)}}},scales:{y:{grid:{color:'rgba(143,160,175,.08)'}}}}});
-  }
-  if(dateA&&dateB){
-    const mode=measA&&measB?'sum':'count';
-    const mA=seriesMap(A.rows,dateA.key,measA?.key,mode),mB=seriesMap(B.rows,dateB.key,measB?.key,mode);
+      data:{labels:gA.map(g=>Utils.trunc(g.label,14)),datasets:[{label:'Principal',data:gA.map(g=>+g.value.toFixed(2)),backgroundColor:Utils.hexRgba(pri,.8),borderRadius:5},{label:'Secundario',data:gA.map(g=>+(mB.get(g.label)||0).toFixed(2)),backgroundColor:Utils.hexRgba(acc,.55),borderRadius:5}]},
+      options:{maintainAspectRatio:false,responsive:true,plugins:{legend:{labels:{boxWidth:10}},tooltip:{callbacks:{label:c=>' '+c.dataset.label+': '+Utils.fmtNum(c.parsed.y)}}},scales:{y:{grid:{color:'rgba(143,160,175,.08)'}}}}});}
+  if(dateA&&dateB){const mode=measA&&measB?'sum':'count';const mA=seriesMap(A.rows,dateA.key,measA?.key,mode),mB=seriesMap(B.rows,dateB.key,measB?.key,mode);
     const keys=[...new Set([...mA.keys(),...mB.keys()])].sort();
     state.cmpCharts.time=new Chart($('#cvCmpTime'),{type:'line',
-      data:{labels:keys.map(k=>bucketLabel(k,'month')),datasets:[
-        {label:'Principal',data:keys.map(k=>mode==='sum'?(mA.get(k)?.v||0):(mA.get(k)?.c||0)),borderColor:pri,backgroundColor:Utils.hexRgba(pri,.2),fill:true,tension:.35},
-        {label:'Secundario',data:keys.map(k=>mode==='sum'?(mB.get(k)?.v||0):(mB.get(k)?.c||0)),borderColor:acc,backgroundColor:Utils.hexRgba(acc,.15),fill:true,tension:.35}]},
-      options:{maintainAspectRatio:false,responsive:true,plugins:{legend:{labels:{boxWidth:10}},tooltip:{callbacks:{label:c=>' '+c.dataset.label+': '+Utils.fmtNum(c.parsed.y)}}},scales:{y:{grid:{color:'rgba(143,160,175,.08)'}}}}});
-  }
-  if(catA&&catB&&measA&&measB){
-    const gA=groupAgg(A.rows,catA.key,measA.key,'sum',6);
+      data:{labels:keys.map(k=>bucketLabel(k,'month')),datasets:[{label:'Principal',data:keys.map(k=>mode==='sum'?(mA.get(k)?.v||0):(mA.get(k)?.c||0)),borderColor:pri,backgroundColor:Utils.hexRgba(pri,.2),fill:true,tension:.35},{label:'Secundario',data:keys.map(k=>mode==='sum'?(mB.get(k)?.v||0):(mB.get(k)?.c||0)),borderColor:acc,backgroundColor:Utils.hexRgba(acc,.15),fill:true,tension:.35}]},
+      options:{maintainAspectRatio:false,responsive:true,plugins:{legend:{labels:{boxWidth:10}},tooltip:{callbacks:{label:c=>' '+c.dataset.label+': '+Utils.fmtNum(c.parsed.y)}}},scales:{y:{grid:{color:'rgba(143,160,175,.08)'}}}}});}
+  if(catA&&catB&&measA&&measB){const gA=groupAgg(A.rows,catA.key,measA.key,'sum',6);
     const mB=new Map(groupAgg(B.rows,catB.key,measB.key,'sum',9999).map(g=>[g.label,g.value]));
     $('#cmpHead').innerHTML='<tr><th>Categoría</th><th>Σ Principal</th><th>Σ Secundario</th><th>Δ</th><th>Δ%</th></tr>';
     $('#cmpBody').innerHTML=gA.map(g=>{const b=mB.get(g.label)||0;const d=g.value-b;const dp=b>0?d/b*100:null;
@@ -2305,49 +1687,33 @@ function renderCompare(){
   }else{$('#cmpHead').innerHTML='';$('#cmpBody').innerHTML='<tr><td style="padding:16px;color:var(--muted)">Sin dimensión común.</td></tr>';}
 }
 
-/* ================= FilterEngine ================= */
 const FilterEngine={
-  buildUI(){
-    const wrap=$('#filterSelects');wrap.innerHTML='';
-    const cats=state.columns.filter(c=>c.type==='text'&&c.cardinal>=2&&c.cardinal<=120)
-      .sort((a,b)=>((a.role==='category')?-1:0)-((b.role==='category')?-1:0)||a.cardinal-b.cardinal).slice(0,5);
-    cats.forEach(c=>{
-      const sel=document.createElement('select');sel.className='sel';sel.dataset.col=c.key;
-      sel.innerHTML=`<option value="__all">🗂 ${Utils.esc(Utils.trunc(c.name,20))}: Todos</option>`+
-        c.distinct.slice(0,40).map(([v,n])=>`<option value="${Utils.esc(v)}">${Utils.esc(Utils.trunc(v,26))} (${n})</option>`).join('');
-      sel.addEventListener('change',()=>{
-        if(sel.value==='__all')delete state.filters[c.key];
+  buildUI(){const wrap=$('#filterSelects');wrap.innerHTML='';
+    const cats=state.columns.filter(c=>c.type==='text'&&c.cardinal>=2&&c.cardinal<=120).sort((a,b)=>((a.role==='category')?-1:0)-((b.role==='category')?-1:0)||a.cardinal-b.cardinal).slice(0,5);
+    cats.forEach(c=>{const sel=document.createElement('select');sel.className='sel';sel.dataset.col=c.key;
+      sel.innerHTML=`<option value="__all">🗂 ${Utils.esc(Utils.trunc(c.name,20))}: Todos</option>`+c.distinct.slice(0,40).map(([v,n])=>`<option value="${Utils.esc(v)}">${Utils.esc(Utils.trunc(v,26))} (${n})</option>`).join('');
+      sel.addEventListener('change',()=>{if(sel.value==='__all')delete state.filters[c.key];
         else state.filters[c.key]={kind:'set',values:new Set([sel.value]),label:`${c.name}: ${Utils.trunc(sel.value,20)}`,fn:r=>String(r[c.key]??'')===sel.value};
-        state.page=1;refresh();});
-      wrap.appendChild(sel);});
-    const d=roleCol('date');
-    if(d)['Desde','Hasta'].forEach((t,i)=>{const inp=document.createElement('input');inp.type='date';inp.className='inp';inp.style.width='140px';inp.dataset.rd=i;
-      inp.title=t;inp.addEventListener('change',()=>this._range(d));wrap.appendChild(inp);});
-  },
+        state.page=1;refresh();});wrap.appendChild(sel);});
+    const d=roleCol('date');if(d)['Desde','Hasta'].forEach((t,i)=>{const inp=document.createElement('input');inp.type='date';inp.className='inp';inp.style.width='140px';inp.dataset.rd=i;
+      inp.title=t;inp.addEventListener('change',()=>this._range(d));wrap.appendChild(inp);});},
   _range(d){const ins=[...document.querySelectorAll('[data-rd]')];
-    const a=ins[0].value?new Date(ins[0].value):null,b=ins[1].value?new Date(ins[1].value+'T23:59:59'):null;
-    const k=d.key+'__rg';
+    const a=ins[0].value?new Date(ins[0].value):null,b=ins[1].value?new Date(ins[1].value+'T23:59:59'):null;const k=d.key+'__rg';
     if(!a&&!b)delete state.filters[k];
     else state.filters[k]={kind:'range',label:`${d.name}: ${a?Utils.fmtDate(a):'…'} → ${b?Utils.fmtDate(b):'…'}`,fn:r=>{const v=r[d.key];return v&&(!a||v>=a)&&(!b||v<=b);}};
     state.page=1;refresh();},
-  renderChips(){
-    const c=$('#chips');c.innerHTML=Object.entries(state.filters).map(([k,f])=>
-      `<span class="chip">${Utils.esc(f.label)}<button data-k="${Utils.esc(k)}" title="Quitar filtro">✕</button></span>`).join('');
-    c.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{delete state.filters[b.dataset.k];state.page=1;refresh();}));
-  }
+  renderChips(){const c=$('#chips');c.innerHTML=Object.entries(state.filters).map(([k,f])=>
+    `<span class="chip">${Utils.esc(f.label)}<button data-k="${Utils.esc(k)}" title="Quitar filtro">✕</button></span>`).join('');
+    c.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{delete state.filters[b.dataset.k];state.page=1;refresh();}));}
 };
 
-/* ================= TableEngine ================= */
 const TableEngine={
-  visCols(){
-    const cols=state.columns.filter(c=>c.type!=='image');
+  visCols(){const cols=state.columns.filter(c=>c.type!=='image');
     const hasEg=state.columns.some(c=>c.type==='date'&&/egreso|salida|baja|entrega/i.test(c.name));
     const hasDs=state.rows.length&&('__diasStock' in state.rows[0]);
     if(!hasEg&&hasDs)cols.push({key:'__egreso',name:'Fecha egreso',type:'date',virtual:true});
-    if(hasDs)cols.push({key:'__diasStock',name:'Días en stock',type:'number',virtual:true});
-    return cols;},
-  render(rows){
-    const cols=this.visCols();
+    if(hasDs)cols.push({key:'__diasStock',name:'Días en stock',type:'number',virtual:true});return cols;},
+  render(rows){const cols=this.visCols();
     $('#tblHead').innerHTML='<tr><th style="width:34px"><input type="checkbox" id="selAll"></th>'+cols.map(c=>{
       const arrow=state.sort.key===c.key?(state.sort.dir>0?' ▲':' ▼'):'';
       return `<th data-k="${Utils.esc(c.key)}">${Utils.esc(Utils.trunc(c.name,22))}${arrow}</th>`;}).join('')+'</tr>';
@@ -2357,58 +1723,45 @@ const TableEngine={
     if(state.sort.key){const k=state.sort.key;
       sorted.sort((a,b)=>{const va=a[k],vb=b[k];
         if(va==null&&vb==null)return 0;if(va==null)return -1;if(vb==null)return 1;
-        if(va instanceof Date&&vb instanceof Date)return(va-vb)*state.sort.dir;
+        if(va instanceof Date&&vb instanceof Date&&!isNaN(va.getTime())&&!isNaN(vb.getTime()))return(va-vb)*state.sort.dir;
         if(typeof va==='number'&&typeof vb==='number')return(va-vb)*state.sort.dir;
         return String(va).localeCompare(String(vb),'es',{numeric:true})*state.sort.dir;});}
-    const total=sorted.length,pages=Math.max(1,Math.ceil(total/state.pageSize));
-    state.page=Math.min(Math.max(1,state.page),pages);
+    const total=sorted.length,pages=Math.max(1,Math.ceil(total/state.pageSize));state.page=Math.min(Math.max(1,state.page),pages);
     const start=(state.page-1)*state.pageSize,pageRows=sorted.slice(start,start+state.pageSize);
-    $('#tblBody').innerHTML=pageRows.length?pageRows.map(r=>{
-      const sel=state.selected.has(r.__id);
-      return `<tr class="${sel?'sel':''}"><td><input type="checkbox" data-id="${r.__id}" ${sel?'checked':''}></td>`+cols.map(c=>{
-        const v=r[c.key];
-        if(c.key==='__egreso')return `<td>${v?Utils.fmtDate(v):'<span style="color:var(--ok)">🟢 En stock</span>'}</td>`;
+    $('#tblBody').innerHTML=pageRows.length?pageRows.map(r=>{const sel=state.selected.has(r.__id);
+      return `<tr class="${sel?'sel':''}"><td><input type="checkbox" data-id="${r.__id}" ${sel?'checked':''}></td>`+cols.map(c=>{const v=r[c.key];
+        if(c.key==='__egreso')return `<td>${v instanceof Date&&!isNaN(v.getTime())?Utils.fmtDate(v):'<span style="color:var(--ok)">🟢 En stock</span>'}</td>`;
         if(c.key==='__diasStock')return `<td style="text-align:right">${v!=null?Utils.fmtInt(v)+' d':'—'}</td>`;
         if(c.type==='url')return `<td>${v?`<a href="${Utils.esc(v)}" target="_blank" rel="noopener" style="color:var(--primary)">🔗 enlace</a>`:'—'}</td>`;
-        if(c.type==='date')return `<td>${Utils.fmtDate(v)}</td>`;
+        if(c.type==='date')return `<td>${v instanceof Date&&!isNaN(v.getTime())?Utils.fmtDate(v):'—'}</td>`;
         if(c.type==='currency')return `<td style="text-align:right">${v!=null?Utils.fmtCur(v,c.sym):'—'}</td>`;
         if(c.type==='percent')return `<td style="text-align:right">${v!=null?Utils.fmtNum(v)+'%':'—'}</td>`;
         if(c.type==='number')return `<td style="text-align:right">${v!=null?Utils.fmtNum(v):'—'}</td>`;
         return `<td title="${Utils.esc(v??'')}">${Utils.esc(v??'—')}</td>`;}).join('')+'</tr>';}).join('')
       :'<tr><td colspan="99" style="text-align:center;padding:30px;color:var(--muted)">Sin resultados 🏁</td></tr>';
     $('#tblBody').querySelectorAll('input[data-id]').forEach(cb=>cb.addEventListener('change',()=>{
-      const id=+cb.dataset.id;cb.checked?state.selected.add(id):state.selected.delete(id);
-      cb.closest('tr').classList.toggle('sel',cb.checked);this._selInfo();}));
+      const id=+cb.dataset.id;cb.checked?state.selected.add(id):state.selected.delete(id);cb.closest('tr').classList.toggle('sel',cb.checked);this._selInfo();}));
     const sa=$('#selAll');if(sa)sa.onchange=e=>{pageRows.forEach(r=>e.target.checked?state.selected.add(r.__id):state.selected.delete(r.__id));this.render(getFiltered());};
     $('#tblInfo').textContent=`Mostrando ${total?start+1:0}–${Math.min(start+state.pageSize,total)} de ${Utils.fmtInt(total)}`;
     $('#pgInfo').textContent=`Pág ${state.page}/${pages}`;
-    $('#pgFirst').disabled=$('#pgPrev').disabled=state.page<=1;
-    $('#pgNext').disabled=$('#pgLast').disabled=state.page>=pages;
-    this._selInfo();
-  },
+    $('#pgFirst').disabled=$('#pgPrev').disabled=state.page<=1;$('#pgNext').disabled=$('#pgLast').disabled=state.page>=pages;this._selInfo();},
   _selInfo(){$('#selInfo').textContent=state.selected.size?`${state.selected.size} seleccionados`:'';}
 };
 
-/* ================= InsightsEngine ================= */
 function renderInsights(rows){
   const out=[];const n=rows.length;
   if(!n){$('#insightsList').innerHTML='<li class="warn"><span class="ic">🚫</span><div>No hay registros con los filtros actuales.</div></li>';return;}
-  const cat=roleCol('category'),lab=roleCol('label')||roleCol('product')||roleCol('code'),
-        meas=pickMeasure(),date=roleCol('date'),stock=roleCol('stock'),price=roleCol('price'),
-        statusCol=findStatusCol(state.columns),saleCol=findSaleCol(state.columns),
-        ws=state.columns._ws;
+  const cat=roleCol('category'),lab=roleCol('label')||roleCol('product')||roleCol('code'),meas=pickMeasure(),date=roleCol('date'),
+    stock=roleCol('stock'),price=roleCol('price'),statusCol=findStatusCol(state.columns),saleCol=findSaleCol(state.columns),ws=state.columns._ws;
   out.push({t:'info',i:'🧾',x:`La vista actual contiene <b>${Utils.fmtInt(n)}</b> registros${cat?` en <b>${Utils.fmtInt(distinctIn(rows,cat.key))}</b> ${Utils.esc(cat.name.toLowerCase())}`:''}.`});
-  if(state.workshopMode){
-    if(ws?.mechanic){const by=groupAgg(rows,ws.mechanic.key,null,'count',1);if(by[0])out.push({t:'ok',i:'👨‍🔧',x:`Mecánico líder: <b>${Utils.esc(by[0].label)}</b> con ${Utils.fmtInt(by[0].value)} servicios.`});}
+  if(state.workshopMode){if(ws?.mechanic){const by=groupAgg(rows,ws.mechanic.key,null,'count',1);if(by[0])out.push({t:'ok',i:'👨‍🔧',x:`Mecánico líder: <b>${Utils.esc(by[0].label)}</b> con ${Utils.fmtInt(by[0].value)} servicios.`});}
     if(ws?.rework){const rw=rows.filter(r=>/s[ií]|yes|true|1/i.test(String(r[ws.rework.key]??''))).length;
-      out.push({t:rw>n*0.1?'warn':'info',i:'🔄',x:`<b>${rw}</b> retrabajos (${(rw/n*100).toFixed(1)}%)${rw>n*0.1?'. Investigar causas.':''}`});}
-  }
+      out.push({t:rw>n*0.1?'warn':'info',i:'🔄',x:`<b>${rw}</b> retrabajos (${(rw/n*100).toFixed(1)}%)${rw>n*0.1?'. Investigar causas.':''}`});}}
   if(statusCol&&saleCol){const comp=rows.filter(r=>isCompleted(r[statusCol.key]));
     out.push({t:'ok',i:'💵',x:`Facturación (Completados): <b>${Utils.fmtCur(sumIn(comp,saleCol.key),saleCol.sym)}</b> en ${Utils.fmtInt(comp.length)} pedidos.`});}
   if(cat&&meas){const g=groupAgg(rows,cat.key,meas.key,'sum',3);const tot=g.reduce((a,b)=>a+b.value,0)||1;
     if(g[0])out.push({t:'ok',i:'🏆',x:`<b>${Utils.esc(g[0].label)}</b> lidera ${Utils.esc(meas.name)} con <b>${Utils.fmtNum(g[0].value)}</b> (${Math.round(g[0].value/tot*100)}% del total).`});
-    const t3=g.slice(0,3).reduce((a,b)=>a+b.value,0)/tot*100;
-    if(t3>=60&&g.length>3)out.push({t:'warn',i:'📌',x:`Alta concentración: el top 3 de ${Utils.esc(cat.name)} acumula <b>${Math.round(t3)}%</b>.`});}
+    const t3=g.slice(0,3).reduce((a,b)=>a+b.value,0)/tot*100;if(t3>=60&&g.length>3)out.push({t:'warn',i:'📌',x:`Alta concentración: el top 3 de ${Utils.esc(cat.name)} acumula <b>${Math.round(t3)}%</b>.`});}
   if(lab&&meas){const all=groupAgg(rows,lab.key,meas.key,'sum',99999);const g=all[0],mn=all[all.length-1];
     if(g)out.push({t:'ok',i:'🚀',x:`Máximo ${Utils.esc(meas.name)}: <b>${Utils.esc(g.label)}</b> (${Utils.fmtNum(g.value)}).`});
     if(mn&&mn!==g)out.push({t:'info',i:'🐢',x:`Mínimo ${Utils.esc(meas.name)}: <b>${Utils.esc(mn.label)}</b> (${Utils.fmtNum(mn.value)}).`});}
@@ -2417,60 +1770,43 @@ function renderInsights(rows){
     if(zero)out.push({t:'bad',i:'⛔',x:`<b>${zero}</b> registros sin stock (${Math.round(zero/n*100)}%). Reposición urgente.`});
     if(low)out.push({t:'warn',i:'⚠️',x:`<b>${low}</b> registros con stock crítico (≤ 5 u).`});}
   if(price){const vs=rows.map(r=>valNum(r[price.key])).filter(v=>v!=null);
-    if(vs.length>3){const mean=vs.reduce((a,b)=>a+b,0)/vs.length;
-      const sv=[...vs].sort((a,b)=>a-b);const q=p=>sv[Math.floor(p*(sv.length-1))];
-      const iqr=q(.75)-q(.25),lo=q(.25)-1.5*iqr,hi=q(.75)+1.5*iqr;
-      const outs=vs.filter(v=>v<lo||v>hi).length;
+    if(vs.length>3){const mean=vs.reduce((a,b)=>a+b,0)/vs.length;const sv=[...vs].sort((a,b)=>a-b);const q=p=>sv[Math.floor(p*(sv.length-1))];
+      const iqr=q(.75)-q(.25),lo=q(.25)-1.5*iqr,hi=q(.75)+1.5*iqr;const outs=vs.filter(v=>v<lo||v>hi).length;
       out.push({t:'info',i:'💠',x:`${Utils.esc(price.name)}: promedio <b>${Utils.fmtNum(mean)}</b>, rango <b>${Utils.fmtNum(sv[0])}–${Utils.fmtNum(sv[sv.length-1])}</b>.`});
       if(outs)out.push({t:'warn',i:'🛸',x:`<b>${outs}</b> valores atípicos detectados.`});}}
   const other=state.view==='B'?state.A:state.B;
-  if(other&&cat&&meas){
-    const cB=other.columns.find(c=>c.role==='category')||other.columns.find(c=>c.name===cat.name);
-    const mB=pickMeasureIn(other.columns);
+  if(other&&cat&&meas){const cB=other.columns.find(c=>c.role==='category')||other.columns.find(c=>c.name===cat.name);const mB=pickMeasureIn(other.columns);
     if(cB&&mB){const gA=groupAgg(rows,cat.key,meas.key,'sum',999);
-      const mapB=new Map(groupAgg(other.rows,cB.key,mB.key,'sum',999).map(g=>[g.label,g.value]));
-      let up=null,dn=null;
-      gA.forEach(g=>{const b=mapB.get(g.label);if(b>0){const d=(g.value-b)/b*100;
-        if(!up||d>up.d)up={label:g.label,d};if(!dn||d<dn.d)dn={label:g.label,d};}});
+      const mapB=new Map(groupAgg(other.rows,cB.key,mB.key,'sum',999).map(g=>[g.label,g.value]));let up=null,dn=null;
+      gA.forEach(g=>{const b=mapB.get(g.label);if(b>0){const d=(g.value-b)/b*100;if(!up||d>up.d)up={label:g.label,d};if(!dn||d<dn.d)dn={label:g.label,d};}});
       const tag=other===state.B?'Secundario':'Principal';
       if(up&&up.d>0)out.push({t:'ok',i:'🆚',x:`Vs dataset ${tag}: <b>${Utils.esc(up.label)}</b> creció <b>+${Math.round(up.d)}%</b>.`});
       if(dn&&dn.d<0)out.push({t:'warn',i:'🆚',x:`Vs dataset ${tag}: <b>${Utils.esc(dn.label)}</b> cayó <b>${Math.round(dn.d)}%</b>.`});}}
   $('#insightsList').innerHTML=out.slice(0,10).map((o,i)=>`<li class="${o.t}" style="animation-delay:${i*70}ms"><span class="ic">${o.i}</span><div>${o.x}</div></li>`).join('');
 }
 
-/* ================= DecisionEngine ================= */
 function renderDecisions(rows){
-  const D=[];const n=rows.length;
-  const cat=roleCol('category'),lab=roleCol('label')||roleCol('product')||roleCol('code'),
-        stock=roleCol('stock'),price=roleCol('price'),meas=pickMeasure(),
-        date=roleCol('date'),pct=state.columns.find(c=>c.type==='percent'),
-        statusCol=findStatusCol(state.columns),ws=state.columns._ws;
+  const D=[];const n=rows.length;const cat=roleCol('category'),lab=roleCol('label')||roleCol('product')||roleCol('code'),
+    stock=roleCol('stock'),price=roleCol('price'),meas=pickMeasure(),date=roleCol('date'),
+    pct=state.columns.find(c=>c.type==='percent'),statusCol=findStatusCol(state.columns),ws=state.columns._ws;
   const add=(p,tag,ic,x)=>D.push({p,tag,ic,x});
   if(statusCol){const canc=rows.filter(r=>isCancelled(r[statusCol.key])||isReturned(r[statusCol.key])).length;
     if(n&&canc/n>.12)add('alta','Servicio','↩️',`Tasa de cancelación/devolución <b>${Math.round(canc/n*100)}%</b>: investigar causa raíz.`);}
-  if(ws?.rework){
-    const rw=rows.filter(r=>/s[ií]|yes|true|1/i.test(String(r[ws.rework.key]??''))).length;
-    if(n&&rw/n>.08)add('alta','Calidad','🔄',`<b>${rw}</b> retrabajos (${(rw/n*100).toFixed(1)}%): revisar diagnóstico inicial y capacitación.`);
-  }
-  if(ws?.rating){
-    const vs=rows.map(r=>valNum(r[ws.rating.key])).filter(v=>v!=null);
-    const avg=vs.length?vs.reduce((a,b)=>a+b,0)/vs.length:0;
-    if(avg<4&&vs.length>5)add('alta','Clientes','😕',`Satisfacción baja (${avg.toFixed(1)}/5): plan de mejora urgente.`);
-  }
-  if(stock){
-    const zero=rows.filter(r=>valNum(r[stock.key])===0);
+  if(ws?.rework){const rw=rows.filter(r=>/s[ií]|yes|true|1/i.test(String(r[ws.rework.key]??''))).length;
+    if(n&&rw/n>.08)add('alta','Calidad','🔄',`<b>${rw}</b> retrabajos (${(rw/n*100).toFixed(1)}%): revisar diagnóstico inicial y capacitación.`);}
+  if(ws?.rating){const vs=rows.map(r=>valNum(r[ws.rating.key])).filter(v=>v!=null);const avg=vs.length?vs.reduce((a,b)=>a+b,0)/vs.length:0;
+    if(avg<4&&vs.length>5)add('alta','Clientes','😕',`Satisfacción baja (${avg.toFixed(1)}/5): plan de mejora urgente.`);}
+  if(stock){const zero=rows.filter(r=>valNum(r[stock.key])===0);
     if(zero.length){const names=groupAgg(zero,lab?lab.key:stock.key,null,'count',3).map(g=>g.label).join(', ');
       add('alta','Reposición','🛒',`Reponer <b>${zero.length}</b> sin stock${lab?` (p.ej.: ${Utils.esc(Utils.trunc(names,60))})`:''}.`);}
     const low=rows.filter(r=>{const v=valNum(r[stock.key]);return v!=null&&v>0&&v<=5;}).length;
-    if(low)add('media','Reposición','📦',`Programar compra preventiva: <b>${low}</b> SKUs con stock ≤ 5.`);
-  }
+    if(low)add('media','Reposición','📦',`Programar compra preventiva: <b>${low}</b> SKUs con stock ≤ 5.`);}
   if(cat&&meas){const g=groupAgg(rows,cat.key,meas.key,'sum',999);const tot=g.reduce((a,b)=>a+b.value,0)||1;
     const t3=g.slice(0,3).reduce((a,b)=>a+b.value,0)/tot*100;
     if(t3>=60&&g.length>3)add('media','Riesgo','🛡️',`Diversificar: top 3 de ${Utils.esc(cat.name)} concentra <b>${Math.round(t3)}%</b>.`);
     if(g[0])add('baja','Marketing','📣',`Priorizar campañas en <b>${Utils.esc(g[0].label)}</b> (líder con ${Math.round(g[0].value/tot*100)}%).`);}
-  if(date){const rs=rows.filter(r=>r[date.key]).sort((a,b)=>a[date.key]-b[date.key]);
-    if(rs.length>5){const h=Math.floor(rs.length/2);
-      const sum=arr=>arr.reduce((a,r)=>a+(meas?(valNum(r[meas.key])||0):1),0);
+  if(date){const rs=rows.filter(r=>r[date.key] instanceof Date&&!isNaN(r[date.key].getTime())).sort((a,b)=>a[date.key]-b[date.key]);
+    if(rs.length>5){const h=Math.floor(rs.length/2);const sum=arr=>arr.reduce((a,r)=>a+(meas?(valNum(r[meas.key])||0):1),0);
       const a=sum(rs.slice(0,h)),b2=sum(rs.slice(h));const tr=a>0?((b2-a)/a*100):0;
       if(tr<=-5)add('alta','Tendencia','📉',`Caída de <b>${Math.round(tr)}%</b>: activar plan promo.`);
       else if(tr>=5)add('baja','Tendencia','📈',`Crecimiento de <b>+${Math.round(tr)}%</b>: asegurar stock.`);}}
@@ -2483,104 +1819,64 @@ function renderDecisions(rows){
 }
 
 function refresh(){
-  try{const full=getFiltered();
-    renderKPIs(full);
-    WorkshopEngine.render(full);
-    AlertsEngine.render(full);
-    AgendaEngine.render(full);
-    RepairStatusEngine.render(full);
-    FinancialEngine.render(full);
-    OperationsEngine.render(full);
-    ClientsEngine.render(full);
-    InventoryEngine.render(full);
-    StrategyEngine.render(full);
+  try{const full=getFiltered();renderKPIs(full);
+    WorkshopEngine.render(full);AlertsEngine.render(full);AgendaEngine.render(full);RepairStatusEngine.render(full);
+    FinancialEngine.render(full);OperationsEngine.render(full);ClientsEngine.render(full);
+    InventoryEngine.render(full);StrategyEngine.render(full);
     renderCharts();TimeEngine.render();renderGeo();TableEngine.render(full);renderInsights(full);renderDecisions(full);FilterEngine.renderChips();
   }catch(e){console.error(e);Utils.toast('⚠️ Error: '+Utils.esc(e.message),'err');}
 }
 
-/* ================= Tilt ================= */
 const Tilt={el:null,
   init(){const m=document.querySelector('main');
-    m.addEventListener('mousemove',e=>{
-      const t=e.target.closest('.kpi,.ch-card,.cmp-kpi,.ws-card,.ws-metric');
-      if(!t){this.clear();return;}
-      if(t!==this.el)this.el=t;
-      const r=t.getBoundingClientRect();
+    m.addEventListener('mousemove',e=>{const t=e.target.closest('.kpi,.ch-card,.cmp-kpi,.ws-card,.ws-metric');
+      if(!t){this.clear();return;}if(t!==this.el)this.el=t;const r=t.getBoundingClientRect();
       const px=(e.clientX-r.left)/r.width-.5,py=(e.clientY-r.top)/r.height-.5;
       t.style.transform=`perspective(900px) rotateX(${(-py*3).toFixed(2)}deg) rotateY(${(px*4).toFixed(2)}deg) translateY(-2px)`;});
-    m.addEventListener('mouseleave',()=>this.clear());
-    document.addEventListener('scroll',()=>this.clear(),{passive:true});},
+    m.addEventListener('mouseleave',()=>this.clear());document.addEventListener('scroll',()=>this.clear(),{passive:true});},
   clear(){if(this.el){this.el.style.transform='';this.el=null;}}
 };
 
-/* ================= UI ================= */
-async function handleFile(f){
-  if(!f)return;
-  Utils.loading(true);
+async function handleFile(f){if(!f)return;Utils.loading(true);
   try{const rows=await DataSource.readFile(f);ingest(rows,{type:'file',label:f.name});}
-  catch(e){Utils.toast('❌ '+Utils.esc(e.message),'err');}
-  finally{Utils.loading(false);}
-}
-async function connectSheets(url){
-  if(!url)return Utils.toast('Pega primero un enlace de Google Sheets.','err');
-  Utils.loading(true);
-  try{const rows=await DataSource.loadSheets(url);
-    state.lastSheetsUrl=url;localStorage.setItem('fc_last_sheets',url);
+  catch(e){Utils.toast('❌ '+Utils.esc(e.message),'err');}finally{Utils.loading(false);}}
+async function connectSheets(url){if(!url)return Utils.toast('Pega primero un enlace de Google Sheets.','err');Utils.loading(true);
+  try{const rows=await DataSource.loadSheets(url);state.lastSheetsUrl=url;localStorage.setItem('fc_last_sheets',url);
     ingest(rows,{type:'sheets',label:'Google Sheets'});}
-  catch(e){Utils.toast('❌ '+Utils.esc(e.message),'err');}
-  finally{Utils.loading(false);}
-}
+  catch(e){Utils.toast('❌ '+Utils.esc(e.message),'err');}finally{Utils.loading(false);}}
 document.addEventListener('DOMContentLoaded',()=>{
-  ThemeManager.load();Tilt.init();
-  const last=localStorage.getItem('fc_last_sheets');if(last)$('#sheetsUrl').value=last;
-  document.querySelectorAll('.seg-btn[data-slot]').forEach(b=>b.addEventListener('click',()=>{
-    state.slot=b.dataset.slot;
+  ThemeManager.load();Tilt.init();const last=localStorage.getItem('fc_last_sheets');if(last)$('#sheetsUrl').value=last;
+  document.querySelectorAll('.seg-btn[data-slot]').forEach(b=>b.addEventListener('click',()=>{state.slot=b.dataset.slot;
     document.querySelectorAll('.seg-btn[data-slot]').forEach(x=>x.classList.toggle('active',x===b));
-    Utils.toast(state.slot==='B'?'🅱 Próxima carga → <b>Secundario</b>.':'🅰 Próxima carga → <b>Principal</b>.');
-  }));
+    Utils.toast(state.slot==='B'?'🅱 Próxima carga → <b>Secundario</b>.':'🅰 Próxima carga → <b>Principal</b>.');}));
   document.querySelectorAll('.view-btn').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
-  $('#btnCompare').onclick=()=>{
-    if(!state.B)return Utils.toast('Carga primero un dataset Secundario.','err');
-    state.showCompare=!state.showCompare;
-    $('#btnCompare').classList.toggle('primary',state.showCompare);
-    renderCompare();
+  $('#btnCompare').onclick=()=>{if(!state.B)return Utils.toast('Carga primero un dataset Secundario.','err');
+    state.showCompare=!state.showCompare;$('#btnCompare').classList.toggle('primary',state.showCompare);renderCompare();
     if(state.showCompare)setTimeout(()=>$('#compareSection').scrollIntoView({behavior:'smooth',block:'start'}),150);};
   $('#btnRemoveB').onclick=()=>{state.B=null;state.showCompare=false;$('#btnCompare').classList.remove('primary');updateBBadge();
-    if(state.view==='B'){state.view='A';syncViewButtons();activateDS(state.A,false);}
-    renderCompare();refresh();Utils.toast('🅱 Dataset Secundario retirado.');};
+    if(state.view==='B'){state.view='A';syncViewButtons();activateDS(state.A,false);}renderCompare();refresh();Utils.toast('🅱 Dataset Secundario retirado.');};
   $('#btnSheets').onclick=()=>connectSheets($('#sheetsUrl').value.trim());
   $('#sheetsUrl').addEventListener('keydown',e=>{if(e.key==='Enter')connectSheets(e.target.value.trim());});
-  $('#btnCSV').onclick=()=>$('#fileCSV').click();
-  $('#btnXLSX').onclick=()=>$('#fileXLSX').click();
-  $('#dropzone').onclick=()=>$('#fileAny').click();
+  $('#btnCSV').onclick=()=>$('#fileCSV').click();$('#btnXLSX').onclick=()=>$('#fileXLSX').click();$('#dropzone').onclick=()=>$('#fileAny').click();
   $('#btnDemo').onclick=()=>{try{ingest(DataSource.demo(),{type:'demo',label:'Demo Taller SKILL MECANIC'});}catch(e){Utils.toast('❌ '+Utils.esc(e.message),'err');}};
-  $('#btnRefresh').onclick=e=>{
-    const b=e.currentTarget;b.classList.add('spinning');
-    (async()=>{try{
-      if(state.source.type==='sheets'&&state.lastSheetsUrl)await connectSheets(state.lastSheetsUrl);
+  $('#btnRefresh').onclick=e=>{const b=e.currentTarget;b.classList.add('spinning');
+    (async()=>{try{if(state.source.type==='sheets'&&state.lastSheetsUrl)await connectSheets(state.lastSheetsUrl);
       else if(state.source.type==='demo')ingest(DataSource.demo(),state.source);
-      else Utils.toast('Recarga disponible para Sheets o Demo.','err');
-    }finally{setTimeout(()=>b.classList.remove('spinning'),500);}})();};
-  $('#fileCSV').onchange=e=>handleFile(e.target.files[0]);
-  $('#fileXLSX').onchange=e=>handleFile(e.target.files[0]);
-  $('#fileAny').onchange=e=>handleFile(e.target.files[0]);
+      else Utils.toast('Recarga disponible para Sheets o Demo.','err');}finally{setTimeout(()=>b.classList.remove('spinning'),500);}})();};
+  $('#fileCSV').onchange=e=>handleFile(e.target.files[0]);$('#fileXLSX').onchange=e=>handleFile(e.target.files[0]);$('#fileAny').onchange=e=>handleFile(e.target.files[0]);
   let depth=0;
   window.addEventListener('dragenter',e=>{e.preventDefault();depth++;$('#dropOverlay').classList.add('on');$('#dropzone').classList.add('drag');});
   window.addEventListener('dragleave',e=>{e.preventDefault();if(--depth<=0){$('#dropOverlay').classList.remove('on');$('#dropzone').classList.remove('drag');}});
   window.addEventListener('dragover',e=>e.preventDefault());
   window.addEventListener('drop',e=>{e.preventDefault();depth=0;$('#dropOverlay').classList.remove('on');$('#dropzone').classList.remove('drag');handleFile(e.dataTransfer.files?.[0]);});
-  document.querySelectorAll('.gbtn').forEach(b=>b.addEventListener('click',()=>{
-    TimeEngine.gran=b.dataset.g;TimeEngine.period=null;
-    document.querySelectorAll('.gbtn').forEach(x=>x.classList.toggle('active',x===b));
-    TimeEngine.render();}));
+  document.querySelectorAll('.gbtn').forEach(b=>b.addEventListener('click',()=>{TimeEngine.gran=b.dataset.g;TimeEngine.period=null;
+    document.querySelectorAll('.gbtn').forEach(x=>x.classList.toggle('active',x===b));TimeEngine.render();}));
   $('#periodSel').addEventListener('change',e=>{TimeEngine.period=e.target.value;TimeEngine.render();});
   $('#btnPDF').onclick=()=>PDFEngine.generate();
-  if(!window.Chart)Utils.toast('⚠️ Chart.js no cargó.','err');
-  if(!window.XLSX)Utils.toast('⚠️ SheetJS no cargó: XLSX deshabilitado.','err');
+  if(!window.Chart)Utils.toast('⚠️ Chart.js no cargó.','err');if(!window.XLSX)Utils.toast('⚠️ SheetJS no cargó: XLSX deshabilitado.','err');
   if(!window.L)Utils.toast('⚠️ Leaflet no cargó: mapa deshabilitado.','err');
   if(!window.jspdf)Utils.toast('⚠️ jsPDF no cargó: PDF deshabilitado sin internet.','err');
-  $('#btnTheme').onclick=()=>$('#mTheme').classList.add('open');
-  $('#btnCloseTheme').onclick=()=>$('#mTheme').classList.remove('open');
+  $('#btnTheme').onclick=()=>$('#mTheme').classList.add('open');$('#btnCloseTheme').onclick=()=>$('#mTheme').classList.remove('open');
   $('#mTheme').addEventListener('click',e=>{if(e.target.id==='mTheme')e.target.classList.remove('open');});
   $('#presets').innerHTML=ThemeManager.presets.map((p,i)=>`<button class="preset" data-i="${i}" style="background:${p[1]}" title="${p[0]}"></button>`).join('');
   $('#presets').querySelectorAll('.preset').forEach(b=>b.addEventListener('click',()=>{const p=ThemeManager.presets[+b.dataset.i];ThemeManager.apply({primary:p[1],accent:p[2],bg:p[3]});refresh();renderCompare();}));
@@ -2593,20 +1889,16 @@ document.addEventListener('DOMContentLoaded',()=>{
   $('#pageSize').onchange=e=>{state.pageSize=+e.target.value;state.page=1;refresh();};
   $('#pgFirst').onclick=()=>{state.page=1;refresh();};$('#pgPrev').onclick=()=>{state.page--;refresh();};
   $('#pgNext').onclick=()=>{state.page++;refresh();};$('#pgLast').onclick=()=>{state.page=999999;refresh();};
-  $('#btnExport').onclick=()=>{
-    const src=state.selected.size?getFiltered().filter(r=>state.selected.has(r.__id)):getFiltered();
-    if(!src.length)return Utils.toast('Nada que exportar.','err');
-    const cols=state.columns.map(c=>c.key);
+  $('#btnExport').onclick=()=>{const src=state.selected.size?getFiltered().filter(r=>state.selected.has(r.__id)):getFiltered();
+    if(!src.length)return Utils.toast('Nada que exportar.','err');const cols=state.columns.map(c=>c.key);
     const esc=v=>{v=v==null?'':(v instanceof Date?v.toISOString().slice(0,10):String(v));return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
     const csv=[cols.join(',')].concat(src.map(r=>cols.map(k=>esc(r.__raw?.[k]??r[k])).join(','))).join('\n');
     const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv'}));
-    a.download='SKILL_MECANIC_export.csv';a.click();URL.revokeObjectURL(a.href);
-    Utils.toast(`⬇ Exportados ${src.length} registros.`,'ok');};
+    a.download='SKILL_MECANIC_export.csv';a.click();URL.revokeObjectURL(a.href);Utils.toast(`⬇ Exportados ${src.length} registros.`,'ok');};
   try{ingest(DataSource.demo(),{type:'demo',label:'Demo Taller SKILL MECANIC'});}
   catch(e){Utils.toast('❌ '+Utils.esc(e.message),'err');}
 });
 </script>
 </body>
 </html>
-
 
