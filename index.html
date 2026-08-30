@@ -501,14 +501,13 @@ footer{padding:18px;text-align:center;color:var(--muted);font-size:.72rem;letter
 const $=s=>document.querySelector(s);
 const state={rows:[],columns:[],filters:{},search:'',sort:{key:null,dir:1},page:1,pageSize:10,selected:new Set(),charts:{},chartTypes:{},cmpCharts:{},source:{type:'demo',label:'Demo Taller'},lastSheetsUrl:null,updatedAt:null,slot:'A',view:'A',showCompare:false,A:null,B:null,leafletMap:null,workshopMode:false};
 
-/* ================= Utils ================= */
 const Utils={
   esc:s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])),
   fmtInt:n=>new Intl.NumberFormat('es').format(n||0),
   fmtNum(n){if(n==null||isNaN(n))return '—';const a=Math.abs(n);return new Intl.NumberFormat('es',a>=1000?{maximumFractionDigits:0}:a>=10?{maximumFractionDigits:1}:{maximumFractionDigits:2}).format(n);},
   fmtCur:(n,s)=>(s||'$')+' '+Utils.fmtNum(n),
-  fmtDate:d=>d?d.toLocaleDateString('es',{day:'2-digit',month:'short',year:'2-digit'}):'—',
-  fmtTime:d=>d?d.toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'}):'—',
+  fmtDate:d=>(d instanceof Date&&!isNaN(d.getTime()))?d.toLocaleDateString('es',{day:'2-digit',month:'short',year:'2-digit'}):'—',
+  fmtTime:d=>(d instanceof Date&&!isNaN(d.getTime()))?d.toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'}):'—',
   trunc:(s,n=26)=>{s=String(s??'');return s.length>n?s.slice(0,n-1)+'…':s;},
   hexRgba:(hex,a)=>{const h=hex.replace('#','');const f=h.length===3?h.split('').map(c=>c+c).join(''):h;const n=parseInt(f,16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`;},
   debounce:(fn,ms)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};},
@@ -520,7 +519,6 @@ const Utils={
   norm:s=>String(s??'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
 };
 
-/* ================= ThemeManager ================= */
 const ThemeManager={
   apply(t){const r=document.documentElement.style;r.setProperty('--primary',t.primary);r.setProperty('--accent',t.accent);r.setProperty('--bg',t.bg);
     r.setProperty('--glow',`0 0 22px ${Utils.hexRgba(t.primary,.28)}`);localStorage.setItem('fc_theme',JSON.stringify(t));
@@ -529,7 +527,11 @@ const ThemeManager={
   presets:[['Racing Red','#e10600','#9aa7b4','#07090c'],['Cyan Turbo','#00c2ff','#7dd3fc','#05090f'],['Nitro Green','#22c55e','#86efac','#060b07'],['Purple Night','#8b5cf6','#c4b5fd','#0a0710'],['Workshop Blue','#0369a1','#38bdf8','#040814']]
 };
 
-/* ================= TypeDetector ================= */
+/* ============================================================
+   🛠️ TypeDetector CORREGIDO
+   - parseDate soporta "DD/MM/YYYY HH:MM"
+   - roleByName: "Servicio" ahora es categoría, no orden
+   ============================================================ */
 const TypeDetector={
   URL_RE:/^https?:\/\/\S+$/i,IMG_RE:/\.(png|jpe?g|gif|webp|svg|bmp)(\?.*)?$/i,PCT_RE:/^-?\d+(?:[.,]\d+)?\s*%$/,
   parseNumber(raw){
@@ -544,14 +546,9 @@ const TypeDetector={
     else if(c){if(/^\d{1,3}(,\d{3})+$/.test(s))s=s.replace(/,/g,'');else s=s.replace(',', '.');}
     const n=parseFloat(s);return isFinite(n)?n:null;},
   _mk(y,mo,d){if(y<1900||y>2100||mo<1||mo>12||d<1||d>31)return null;const t=new Date(y,mo-1,d);return isNaN(t)?null:t;},
-  /* ============================================================
-     🛠️ FIX: parseDate ahora soporta "DD/MM/YYYY HH:MM" y variantes
-     Esto arregla el error "d.getFullYear is not a function"
-     ============================================================ */
   parseDate(s){if(typeof s!=='string')return null;s=s.trim();let m;
     if(m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})([T ].*)?$/))return this._mk(+m[1],+m[2],+m[3]);
     if(m=s.match(/^(\d{4})[\/](\d{1,2})[\/](\d{1,2})$/))return this._mk(+m[1],+m[2],+m[3]);
-    // NUEVO: DD/MM/YYYY con hora opcional (HH:MM o HH:MM:SS)
     if(m=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/)){
       const d=this._mk(+m[3],+m[2],+m[1]);
       if(d&&m[4]!=null){d.setHours(+m[4],+m[5],m[6]?+m[6]:0,0);}
@@ -579,7 +576,8 @@ const TypeDetector={
     else type='text';
     return{type,sym};},
   roleByName(key){const k=key.toLowerCase();
-    if(/orden|ot\b|work[_\s-]?order|ticket|reparaci[oó]n|\bservicio\b/i.test(k))return 'order';
+    if(/^servicio$/i.test(k)||/tipo[_\s-]?servicio|tipo[_\s-]?trabajo/i.test(k))return 'category';
+    if(/orden|ot\b|work[_\s-]?order|ticket|reparaci[oó]n/i.test(k))return 'order';
     if(/cliente|customer|\bclient\b|\btitular\b|due[nñ]o|propietario/i.test(k))return 'client';
     if(/veh[ií]culo|vehicle|auto|carro|coche|moto|unidad/i.test(k))return 'vehicle';
     if(/patente|placa|matr[ií]cula|license|nro[_\s-]?placa|\bdominio\b/i.test(k))return 'plate';
@@ -607,7 +605,6 @@ const TypeDetector={
     return null;}
 };
 
-/* ================= Detección estados / ventas ================= */
 const isCompleted=v=>/complet|entregad|pagad|aprobad|finalizad|success|\bok\b|cerrado|closed|ready|listo/i.test(String(v));
 const isCancelled=v=>/cancel|anulad|rechazad/i.test(String(v));
 const isReturned=v=>/devuelt|return|reembols/i.test(String(v));
@@ -637,7 +634,6 @@ function isoWeek(d){
   const firstThu=new Date(Date.UTC(t.getUTCFullYear(),0,4));const fday=(firstThu.getUTCDay()+6)%7;firstThu.setUTCDate(firstThu.getUTCDate()-fday+3);
   return 1+Math.round((t-firstThu)/(7*864e5));}
 
-/* ===== Geocoder embebido: Argentina + mundo ===== */
 const GEO={
  'argentina':[-34.61,-64.18],'provincia de buenos aires':[-36.7,-60.5],'buenos aires':[-34.60,-58.38],'caba':[-34.60,-58.38],
  'cordoba':[-31.42,-64.18],'rosario':[-32.95,-60.65],'santa fe':[-31.63,-60.70],'mendoza':[-32.89,-68.85],'la plata':[-34.92,-57.95],
@@ -666,7 +662,6 @@ const GEO={
 const ARG_MAIN=[[-21.8,-65.0],[-22.0,-62.5],[-23.9,-60.9],[-24.8,-58.4],[-25.6,-57.6],[-27.0,-57.6],[-27.5,-56.5],[-27.4,-55.6],[-26.7,-54.6],[-26.6,-53.8],[-27.2,-53.6],[-28.6,-54.5],[-30.0,-55.2],[-31.0,-56.0],[-32.0,-57.6],[-33.0,-58.1],[-34.5,-58.4],[-35.5,-57.3],[-36.5,-56.8],[-37.5,-57.0],[-38.0,-57.6],[-39.0,-61.5],[-40.5,-62.8],[-41.5,-63.8],[-42.5,-63.6],[-43.5,-65.0],[-44.5,-65.5],[-45.5,-66.5],[-46.5,-67.5],[-47.5,-66.0],[-48.5,-67.0],[-49.5,-67.5],[-50.5,-68.5],[-51.5,-69.0],[-52.5,-68.8],[-54.0,-68.5],[-52.0,-68.6],[-50.0,-69.0],[-48.0,-70.0],[-46.0,-71.0],[-44.0,-71.5],[-42.0,-71.8],[-40.0,-71.9],[-38.0,-71.5],[-36.0,-70.8],[-34.0,-70.0],[-32.0,-69.8],[-30.0,-69.7],[-28.0,-69.0],[-26.0,-68.5],[-24.0,-67.0],[-22.5,-66.0]];
 const ARG_TDF=[[-53.6,-68.5],[-54.5,-65.5],[-55.0,-66.5],[-54.5,-68.5]];
 
-/* ================= DataEngine ================= */
 function detectColumns(data){
   const keys=[],seen=new Set();
   for(let i=0;i<Math.min(data.length,100);i++)for(const k of Object.keys(data[i]))if(!seen.has(k)){seen.add(k);keys.push(k);}
@@ -703,6 +698,10 @@ function finishMeta(cols,rows){
   if(cols._autoLab){const t=cols.filter(c=>c.type==='text'&&c.role!=='category').sort((a,b)=>b.cardinal-a.cardinal)[0];if(t)t.role='label';delete cols._autoLab;}
   if(!cols.some(c=>c.role==='label')&&!cols.some(c=>c.role==='product')){const p=cols.find(c=>c.role==='code');if(p)p.role='label';}
 }
+/* ============================================================
+   🛠️ processDataset CORREGIDO
+   - wsCols.service busca por nombre, no por rol
+   ============================================================ */
 function processDataset(data){
   const columns=detectColumns(data);const rows=normalize(data,columns);finishMeta(columns,rows);
   const dateC=columns.find(c=>c.role==='date');
@@ -725,7 +724,7 @@ function processDataset(data){
     spare:columns.find(c=>c.role==='spare'),
     rework:columns.find(c=>c.role==='rework'),
     status:findStatusCol(columns),
-    service:columns.find(c=>c.role==='category'&&/servicio|service|tipo[_\s-]?(trabajo|reparac)|categor[ií]a/i.test(c.name)),
+    service:columns.find(c=>c.role==='category'&&/servicio|service/i.test(c.name))||columns.find(c=>/^servicio$/i.test(c.name)),
     quote:columns.find(c=>c.role==='quote'),
     channel:columns.find(c=>c.role==='channel'),
     rating:columns.find(c=>c.role==='rating')||columns.find(c=>c.type==='number'&&/rating|satisfacci|encuesta|nps|calificaci/i.test(c.name)),
@@ -788,16 +787,18 @@ const valNum=v=>typeof v==='number'?v:null;
 const sumIn=(rows,k)=>rows.reduce((a,r)=>a+(valNum(r[k])||0),0);
 const avgIn=(rows,k)=>{let s=0,c=0;for(const r of rows){const v=valNum(r[k]);if(v!=null){s+=v;c++;}}return c?s/c:null;};
 const distinctIn=(rows,k)=>new Set(rows.map(r=>r[k]).filter(v=>v!=null&&v!=='')).size;
+/* ============================================================
+   🛠️ getFiltered CORREGIDO - Verificación de seguridad
+   ============================================================ */
 function getFiltered(excludeKey){
   let rows=state.rows;
-  for(const[k,f]of Object.entries(state.filters)){if(k===excludeKey)continue;rows=rows.filter(f.fn);}
-  if(state.search)rows=rows.filter(r=>r.__search.includes(state.search));
+  for(const[k,f]of Object.entries(state.filters)){
+    if(k===excludeKey)continue;
+    if(f&&typeof f.fn==='function')rows=rows.filter(f.fn);
+  }
+  if(state.search)rows=rows.filter(r=>r.__search&&r.__search.includes(state.search));
   return rows;
 }
-/* ============================================================
-   🛠️ FIX: groupAgg ahora soporta modo 'avg' (promedio)
-   Necesario para gráfico de satisfacción promedio por servicio
-   ============================================================ */
 function groupAgg(rows,dimKey,measureKey,mode,top){
   const m=new Map();
   for(const r of rows){const k=r[dimKey];if(k==null||k==='')continue;const key=String(k);
@@ -829,7 +830,6 @@ function seriesMap(rows,dateKey,measKey,mode){const m=new Map();
     if(mode==='sum'){const v=valNum(r[measKey]);if(v)e.v+=v;}m.set(b,e);}
   return m;}
 
-/* ================= DataSource ================= */
 const DataSource={
   parseSheetsUrl(u){const id=(u.match(/\/d\/([a-zA-Z0-9-_]+)/)||[])[1]||null;const gid=(u.match(/[?&]gid=(\d+)/)||[])[1]||null;return{id,gid};},
   matrixToObjects(M){
@@ -855,6 +855,11 @@ const DataSource={
     if(!window.XLSX)throw new Error('La librería XLSX no cargó (revisa tu conexión a internet).');
     const wb=XLSX.read(await file.arrayBuffer(),{type:'array',raw:false});
     return this.matrixToObjects(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:'',raw:false}));},
+  /* ============================================================
+     🛠️ DEMO CORREGIDO
+     - Stock: usa 0 en lugar de 'N/A' (numérico consistente)
+     - Duración: usa número en minutos (no "45 min")
+     ============================================================ */
   demo(){
     const R=(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
     const pick=(arr)=>arr[R(0,arr.length-1)];
@@ -907,10 +912,10 @@ const DataSource={
         else{cli=Math.random()<0.4?pick(clientesRecurrentes):pick(clientes);const vehIdx=clientes.indexOf(cli);veh=vehiculos[(vehIdx*3+j)%vehiculos.length];placa=placas[(vehIdx*2+j)%placas.length];}
         const estado=weighted(estados);const serv=pick(servicios);const mecanico=pick(mecanicos);
         const canal=esFlota?'Flota':weighted(canales);const km=R(15000,180000);
-        const hrsReales=Math.round((R(serv.min,serv.max)/60)/mecanico.hab);const duracionMin=hrsReales*60;
+        const hrsReales=Math.round((R(serv.min,serv.max)/60)/mecanico.hab);
         let costoRep=0;serv.rep.forEach(r=>{costoRep+=R(150,1200);});
         const labor=Math.round(serv.mo*mecanico.hab);const total=costoRep+labor;
-        const fechaEgreso=new Date(fechaIngreso);fechaEgreso.setDate(fechaIngreso.getDate()+Math.ceil(duracionMin/(8*60)));
+        const fechaEgreso=new Date(fechaIngreso);fechaEgreso.setDate(fechaIngreso.getDate()+Math.ceil(hrsReales/8));
         const pagado=estado==='Completado'?(Math.random()<0.8?'Sí':'No'):(Math.random()<0.3?'Sí':'No');
         let satisf=4.2;
         if(estado==='Completado')satisf=R(38,50)/10;else if(estado==='Cancelado')satisf=R(15,30)/10;
@@ -918,10 +923,10 @@ const DataSource={
         if(mecanico.hab>=1.1)satisf=Math.min(5,satisf+0.2);if(mecanico.hab<=0.85)satisf=Math.max(1,satisf-0.3);
         const retrabajo=Math.random()<0.06?'Sí':'No';
         const referido=canal==='Referido'?'Sí':(Math.random()<0.12?'Sí':'No');
-        const repUsado=serv.rep.length?pick(serv.rep):'Ninguno';
-        let stock;if(serv.stock[repUsado]!=null){stock=serv.stock[repUsado]+R(-3,5);if(stock<0)stock=0;
-          if(repUsado==='Kit embrague'||repUsado==='Kit distribución'||repUsado==='Volante motor bimasa')stock=R(0,2);
-        }else{stock='N/A';}
+        const repUsado=serv.rep.length?pick(serv.rep):'';
+        let stock=0;
+        if(repUsado&&serv.stock[repUsado]!=null){stock=Math.max(0,serv.stock[repUsado]+R(-3,5));
+          if(repUsado==='Kit embrague'||repUsado==='Kit distribución'||repUsado==='Volante motor bimasa')stock=R(0,2);}
         const cita=new Date(fechaIngreso);cita.setHours(pick(horasDisponibles),pick([0,30]));
         rows.push({'Orden':'OT-'+(10000+ordenIdx),'Cliente':cli,'Vehículo':veh,'Patente':placa,'Kilometraje':km,
           'Mecánico':mecanico.n,'Servicio':serv.s,'Diagnóstico':pick(diagnosticos),'Estado':estado,
@@ -930,7 +935,7 @@ const DataSource={
           'Horas trabajadas':hrsReales,
           'Mano de obra':'$ '+labor.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
           'Total':'$ '+total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
-          'Pagado':pagado,'Duración':duracionMin+' min','Canal':canal,
+          'Pagado':pagado,'Duración':hrsReales*60,'Canal':canal,
           'Satisfacción':satisf.toFixed(1),'Retrabajo':retrabajo,'Referido':referido,'Flota':esFlota?'Sí':'No',
           'Fecha ingreso':fmtFecha(fechaIngreso),
           'Fecha egreso':(estado==='Completado'||estado==='Listo para entregar')?fmtFecha(fechaEgreso):'',
@@ -950,17 +955,17 @@ const DataSource={
       const estadosMes=[{v:'Completado',w:40},{v:'En proceso',w:20},{v:'Diagnóstico',w:12},{v:'Esperando repuestos',w:10},{v:'Listo para entregar',w:10},{v:'Pendiente',w:8}];
       const estado=weighted(estadosMes);const serv=pick(servicios);const mecanico=pick(mecanicos);
       const canal=esFlota?'Flota':weighted(canales);
-      const hrsReales=Math.round((R(serv.min,serv.max)/60)/mecanico.hab);const duracionMin=hrsReales*60;
+      const hrsReales=Math.round((R(serv.min,serv.max)/60)/mecanico.hab);
       let costoRep=0;serv.rep.forEach(r=>{costoRep+=R(150,1200);});
       const labor=Math.round(serv.mo*mecanico.hab);const total=costoRep+labor;
-      const fechaEgreso=new Date(fechaIngreso);fechaEgreso.setDate(fechaIngreso.getDate()+Math.ceil(duracionMin/(8*60)));
+      const fechaEgreso=new Date(fechaIngreso);fechaEgreso.setDate(fechaIngreso.getDate()+Math.ceil(hrsReales/8));
       const pagado=estado==='Completado'?(Math.random()<0.65?'Sí':'No'):'No';
       let satisf=R(38,48)/10;if(estado==='Cancelado')satisf=R(20,35)/10;
       if(mecanico.hab>=1.1)satisf=Math.min(5,satisf+0.15);
-      const repUsado=serv.rep.length?pick(serv.rep):'Ninguno';
-      let stock;if(serv.stock[repUsado]!=null){stock=serv.stock[repUsado]+R(-2,3);if(stock<0)stock=0;
-        if(repUsado==='Kit embrague'||repUsado==='Kit distribución')stock=R(0,1);
-      }else stock='N/A';
+      const repUsado=serv.rep.length?pick(serv.rep):'';
+      let stock=0;
+      if(repUsado&&serv.stock[repUsado]!=null){stock=Math.max(0,serv.stock[repUsado]+R(-2,3));
+        if(repUsado==='Kit embrague'||repUsado==='Kit distribución')stock=R(0,1);}
       const cita=new Date(fechaIngreso);cita.setHours(pick(horasDisponibles),pick([0,30]));
       rows.push({'Orden':'OT-'+(10000+ordenIdx),'Cliente':cli,'Vehículo':veh,'Patente':placa,'Kilometraje':R(15000,180000),
         'Mecánico':mecanico.n,'Servicio':serv.s,'Diagnóstico':pick(diagnosticos),'Estado':estado,
@@ -969,7 +974,7 @@ const DataSource={
         'Horas trabajadas':hrsReales,
         'Mano de obra':'$ '+labor.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
         'Total':'$ '+total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
-        'Pagado':pagado,'Duración':duracionMin+' min','Canal':canal,
+        'Pagado':pagado,'Duración':hrsReales*60,'Canal':canal,
         'Satisfacción':satisf.toFixed(1),'Retrabajo':Math.random()<0.07?'Sí':'No',
         'Referido':canal==='Referido'?'Sí':(Math.random()<0.15?'Sí':'No'),'Flota':esFlota?'Sí':'No',
         'Fecha ingreso':fmtFecha(fechaIngreso),
@@ -985,15 +990,16 @@ const DataSource={
       if(esFlota){const f=pick(flotas);cli=f.cli;veh=f.veh;placa=f.placa;}
       else{cli=Math.random()<0.6?pick(clientesRecurrentes):pick(clientes);veh=vehiculos[(i*3)%vehiculos.length];placa=placas[(i*2)%placas.length];}
       const estado=estadosHoy[i];const serv=pick(servicios);const mecanico=mecanicos[i%mecanicos.length];
-      const hrsReales=Math.round((R(serv.min,serv.max)/60)/mecanico.hab);const duracionMin=hrsReales*60;
+      const hrsReales=Math.round((R(serv.min,serv.max)/60)/mecanico.hab);
       let costoRep=0;serv.rep.forEach(r=>{costoRep+=R(150,1200);});
       const labor=Math.round(serv.mo*mecanico.hab);const total=costoRep+labor;
       const fechaEgreso=new Date(hoy);
       if(estado==='Completado')fechaEgreso.setHours(horariosHoy[i].h+hrsReales,horariosHoy[i].m);
       const pagado=estado==='Completado'?'Sí':'No';
       const satisf=estado==='Completado'?'4.8':(estado==='En proceso'?'4.2':'4.5');
-      const repUsado=serv.rep.length?pick(serv.rep):'Ninguno';
-      const stock=serv.stock[repUsado]!=null?Math.max(0,serv.stock[repUsado]+R(-1,2)):'N/A';
+      const repUsado=serv.rep.length?pick(serv.rep):'';
+      let stock=0;
+      if(repUsado&&serv.stock[repUsado]!=null)stock=Math.max(0,serv.stock[repUsado]+R(-1,2));
       const cita=new Date(hoy);cita.setHours(horariosHoy[i].h,horariosHoy[i].m,0,0);
       rows.push({'Orden':'OT-'+(10000+ordenIdx),'Cliente':cli,'Vehículo':veh,'Patente':placa,'Kilometraje':R(20000,120000),
         'Mecánico':mecanico.n,'Servicio':serv.s,'Diagnóstico':pick(diagnosticos),'Estado':estado,
@@ -1002,7 +1008,7 @@ const DataSource={
         'Horas trabajadas':hrsReales,
         'Mano de obra':'$ '+labor.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
         'Total':'$ '+total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
-        'Pagado':pagado,'Duración':duracionMin+' min','Canal':esFlota?'Flota':pick(['Taller','WhatsApp','Online']),
+        'Pagado':pagado,'Duración':hrsReales*60,'Canal':esFlota?'Flota':pick(['Taller','WhatsApp','Online']),
         'Satisfacción':satisf,'Retrabajo':'No','Referido':'No','Flota':esFlota?'Sí':'No',
         'Fecha ingreso':fmtFecha(fechaIngreso),
         'Fecha egreso':estado==='Completado'?fmtFecha(fechaEgreso):'',
@@ -1014,14 +1020,14 @@ const DataSource={
   }
 };
 
-/* ================= WorkshopEngine ================= */
 const WorkshopEngine={
   detect(){const ws=state.columns._ws;return state.workshopMode&&ws?ws:null;},
   render(rows){
     const ws=this.detect();const sec=$('#workshopSection');if(!ws){sec.hidden=true;return;}sec.hidden=false;
     const hoy=new Date();hoy.setHours(0,0,0,0);const maniana=new Date(hoy);maniana.setDate(maniana.getDate()+1);
     const stC=ws.status;
-    const ordHoy=rows.filter(r=>{const f=r[state.columns.find(c=>c.role==='date')?.key];return f instanceof Date&&f>=hoy&&f<maniana;}).length;
+    const dateCol=state.columns.find(c=>c.role==='date');
+    const ordHoy=dateCol?rows.filter(r=>{const f=r[dateCol.key];return f instanceof Date&&f>=hoy&&f<maniana;}).length:0;
     const enProceso=stC?rows.filter(r=>isInProgress(r[stC.key])).length:0;
     const pendAprobar=stC?rows.filter(r=>isPending(r[stC.key])||isDiagnosis(r[stC.key])).length:0;
     const completadas=stC?rows.filter(r=>isCompleted(r[stC.key])).length:0;
@@ -1194,8 +1200,8 @@ const OperationsEngine={
     if(rwC){const rw=rows.filter(r=>/s[ií]|yes|true|1/i.test(String(r[rwC.key]??''))).length;
       const rate=rows.length?rw/rows.length*100:0;out.push({lbl:'Tasa de retrabajos',val:rate.toFixed(1)+'%',sub:`${rw} vehículos volvieron por la misma falla`,pct:Math.min(100,rate*10)});}
     if(durC){const hrs=rows.reduce((a,r)=>{const v=valNum(r[durC.key]);return v!=null?a+v:a;},0);
-      const diasActivos=30;const bahias=Math.max(1,mecC?distinctIn(rows,mecC.key):3);const hrsDisp=bahias*diasActivos*8;
-      const util=hrsDisp>0?hrs/hrsDisp*100:0;out.push({lbl:'Utilización del taller',val:Math.round(util)+'%',sub:`${Utils.fmtNum(hrs)}h ocupadas / ${Utils.fmtNum(hrsDisp)}h disponibles`,pct:Math.min(100,util)});}
+      const diasActivos=30;const bahias=Math.max(1,mecC?distinctIn(rows,mecC.key):3);const hrsDisp=bahias*diasActivos*8*60;
+      const util=hrsDisp>0?hrs/hrsDisp*100:0;out.push({lbl:'Utilización del taller',val:Math.round(util)+'%',sub:`${Utils.fmtNum(hrs)} min ocupadas / ${Utils.fmtNum(hrsDisp)} min disponibles`,pct:Math.min(100,util)});}
     if(dateC){const inC=state.columns.find(c=>c.type==='date'&&/ingreso|recepci|admission/i.test(c.name));
       const egC=state.columns.find(c=>c.type==='date'&&/egreso|salida|entrega|completado|finished/i.test(c.name));
       if(inC&&egC){let total=0,cnt=0;
@@ -1452,16 +1458,11 @@ function chartDefaults(){
   const primary=(getComputedStyle(document.documentElement).getPropertyValue('--primary')||'#e10600').trim();
   Chart.defaults.plugins.tooltip.borderColor=Utils.hexRgba(primary,.6);Chart.defaults.plugins.tooltip.borderWidth=1;return primary;
 }
-/* ============================================================
-   🛠️ NUEVO: 6 gráficos específicos para taller
-   Aparecen automáticamente cuando hay datos de taller
-   ============================================================ */
 function buildChartDefs(){
   const cols=state.columns,defs=[];
   const cat=roleCol('category')||cols.filter(c=>c.type==='text'&&c.cardinal>=2&&c.cardinal<=60).sort((a,b)=>a.cardinal-b.cardinal)[0]||null;
   const lab=roleCol('label')||roleCol('product')||cols.filter(c=>c.type==='text'&&c!==cat).sort((a,b)=>b.cardinal-a.cardinal)[0]||null;
   const meas=pickMeasure(),date=roleCol('date'),soldQty=findSoldQty(cols),saleCol=findSaleCol(cols),stKey=findStatusCol(cols)?.key||null;
-  // ====== GRÁFICOS DEL TALLER (solo si workshopMode) ======
   if(state.workshopMode){
     const ws=cols._ws||{};
     if(ws.service)defs.push({id:'wsSvc',w:'w7',title:'🔧 Servicios más solicitados',dim:ws.service.key,fk:ws.service.key,meas:null,mode:'count',top:12,types:['bar'],hz:true,wsChart:true});
@@ -1471,7 +1472,6 @@ function buildChartDefs(){
     if(ws.spare)defs.push({id:'wsSpare',w:'w7',title:'📦 Top repuestos usados',dim:ws.spare.key,fk:ws.spare.key,meas:null,mode:'count',top:10,types:['bar'],hz:true,wsChart:true});
     if(ws.service&&ws.rating)defs.push({id:'wsSat',w:'w7',title:'⭐ Satisfacción promedio por servicio',dim:ws.service.key,fk:ws.service.key,meas:ws.rating.key,mode:'avg',top:12,types:['bar'],hz:true,wsChart:true});
   }
-  // ====== GRÁFICOS ORIGINALES ======
   if(cat)defs.push({id:'cA',w:'w7',title:`${meas?'Σ '+meas.name:'Registros'} por ${cat.name}`,dim:cat.key,fk:cat.key,meas:meas?.key,mode:meas?'sum':'count',top:12,types:['bar','line','area','doughnut']});
   if(cat)defs.push({id:'cB',w:'w5',title:`Distribución · ${cat.name}`,dim:cat.key,fk:cat.key,meas:meas?.key,mode:meas?'sum':'count',top:8,types:['doughnut','bar']});
   if(date)defs.push({id:'cC',w:'w7',title:`Evolución temporal${meas?' · '+meas.name:''}`,dateKey:date.key,fk:date.key+'__bk',meas:meas?.key,mode:meas?'sum':'count',types:['line','area','bar']});
@@ -1562,7 +1562,7 @@ const TimeEngine={gran:'month',period:null,charts:{},
     let topP='—',topPv=0;if(lab){const g=groupAgg(pr,lab.key,(soldQty||meas)?.key,soldQty||meas?'sum':'count',1)[0];if(g){topP=g.label;topPv=g.value;}}
     let topC='—',topCv=0;if(cat){const g=groupAgg(pr,cat.key,(soldQty||meas)?.key,soldQty||meas?'sum':'count',1)[0];if(g){topC=g.label;topCv=g.value;}}
     $('#periodKpis').innerHTML=`
-      <div class="cmp-kpi"><span class="lbl">Ventas del período</span><span class="ab">${saleCol?Utils.fmtCur(totV,saleC.sym):Utils.fmtNum(totV)}</span><span class="delta flat">${this.label(this.period,this.gran)}</span></div>
+      <div class="cmp-kpi"><span class="lbl">Ventas del período</span><span class="ab">${saleCol?Utils.fmtCur(totV,saleCol.sym):Utils.fmtNum(totV)}</span><span class="delta flat">${this.label(this.period,this.gran)}</span></div>
       <div class="cmp-kpi"><span class="lbl">Pedidos</span><span class="ab">${Utils.fmtInt(pr.length)}</span><span class="delta flat">${Utils.fmtNum(totQ)} uds</span></div>
       <div class="cmp-kpi"><span class="lbl">Top producto del período</span><span class="ab">${Utils.esc(Utils.trunc(topP,24))}</span><span class="delta up">${Utils.fmtNum(topPv)}${soldQty?' uds':''}</span></div>
       <div class="cmp-kpi"><span class="lbl">Top categoría</span><span class="ab">${Utils.esc(Utils.trunc(topC,24))}</span><span class="delta up">${Utils.fmtNum(topCv)}</span></div>`;
@@ -1687,15 +1687,35 @@ function renderCompare(){
   }else{$('#cmpHead').innerHTML='';$('#cmpBody').innerHTML='<tr><td style="padding:16px;color:var(--muted)">Sin dimensión común.</td></tr>';}
 }
 
+/* ============================================================
+   🛠️ FilterEngine CORREGIDO
+   - buildUI: Prioriza columnas relevantes del taller
+   ============================================================ */
 const FilterEngine={
   buildUI(){const wrap=$('#filterSelects');wrap.innerHTML='';
-    const cats=state.columns.filter(c=>c.type==='text'&&c.cardinal>=2&&c.cardinal<=120).sort((a,b)=>((a.role==='category')?-1:0)-((b.role==='category')?-1:0)||a.cardinal-b.cardinal).slice(0,5);
-    cats.forEach(c=>{const sel=document.createElement('select');sel.className='sel';sel.dataset.col=c.key;
-      sel.innerHTML=`<option value="__all">🗂 ${Utils.esc(Utils.trunc(c.name,20))}: Todos</option>`+c.distinct.slice(0,40).map(([v,n])=>`<option value="${Utils.esc(v)}">${Utils.esc(Utils.trunc(v,26))} (${n})</option>`).join('');
-      sel.addEventListener('change',()=>{if(sel.value==='__all')delete state.filters[c.key];
+    const rolePriority=(r,n)=>{
+      if(r==='client')return 0;
+      if(r==='vehicle')return 1;
+      if(r==='mechanic')return 2;
+      if(r==='category')return 3;
+      if(/estado|status/i.test(n||''))return 4;
+      if(r==='order')return 5;
+      return 10;
+    };
+    const cats=state.columns.filter(c=>c.type==='text'&&c.cardinal>=2&&c.cardinal<=120)
+      .sort((a,b)=>(rolePriority(a.role,a.name)-rolePriority(b.role,b.name))||a.cardinal-b.cardinal)
+      .slice(0,6);
+    cats.forEach(c=>{
+      const sel=document.createElement('select');sel.className='sel';sel.dataset.col=c.key;
+      sel.innerHTML=`<option value="__all">🗂 ${Utils.esc(Utils.trunc(c.name,20))}: Todos</option>`+
+        (c.distinct||[]).slice(0,40).map(([v,n])=>`<option value="${Utils.esc(v)}">${Utils.esc(Utils.trunc(v,26))} (${n})</option>`).join('');
+      sel.addEventListener('change',()=>{
+        if(sel.value==='__all')delete state.filters[c.key];
         else state.filters[c.key]={kind:'set',values:new Set([sel.value]),label:`${c.name}: ${Utils.trunc(sel.value,20)}`,fn:r=>String(r[c.key]??'')===sel.value};
-        state.page=1;refresh();});wrap.appendChild(sel);});
-    const d=roleCol('date');if(d)['Desde','Hasta'].forEach((t,i)=>{const inp=document.createElement('input');inp.type='date';inp.className='inp';inp.style.width='140px';inp.dataset.rd=i;
+        state.page=1;refresh();});
+      wrap.appendChild(sel);});
+    const d=roleCol('date');
+    if(d)['Desde','Hasta'].forEach((t,i)=>{const inp=document.createElement('input');inp.type='date';inp.className='inp';inp.style.width='140px';inp.dataset.rd=i;
       inp.title=t;inp.addEventListener('change',()=>this._range(d));wrap.appendChild(inp);});},
   _range(d){const ins=[...document.querySelectorAll('[data-rd]')];
     const a=ins[0].value?new Date(ins[0].value):null,b=ins[1].value?new Date(ins[1].value+'T23:59:59'):null;const k=d.key+'__rg';
